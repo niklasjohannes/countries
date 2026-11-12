@@ -1,7 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -134,7 +134,8 @@ describe('--stdin: categories', () => {
       '/Users/<name>/ and /home/<name>/',
       '/home/runner/work and /Users/Shared/',
       'prefixes: ghp_… github_pat_… sk-ant-… AKIA…',
-      'password policy applies',
+      'a password policy applies',
+      'uses https://host.invalid/users/someone and #/home/page',
     ].join('\n');
     assert.equal(scan(['--stdin'], { input: text }).status, 0);
   });
@@ -146,8 +147,14 @@ describe('--stdin: categories', () => {
 });
 
 describe('--stdin --commit-message', () => {
-  it('ignores comment lines', () => {
-    const text = `subject\n\n# Changes to be committed: ${BAD_EMAIL}\n`;
+  it('scans `#` lines, which `git commit -m` keeps', () => {
+    const text = `subject\n\n# note ${BAD_EMAIL}\n`;
+    assertFails(scan(['--stdin', '--commit-message'], { input: text }), 'email');
+  });
+
+  it('stops at the `git commit -v` scissors line', () => {
+    const scissors = `# ${'-'.repeat(24)} >8 ${'-'.repeat(24)}`;
+    const text = `subject\n\n${scissors}\n+${BAD_EMAIL}\n`;
     assert.equal(scan(['--stdin', '--commit-message'], { input: text }).status, 0);
   });
 
@@ -251,10 +258,16 @@ describe('--tree', () => {
     assert.ok(!result.out.includes('ignored.txt'));
   });
 
-  it('skips binary files', () => {
+  it('scans binary and UTF-16 content', () => {
     const repo = makeRepo();
-    writeFileSync(join(repo, 'b.bin'), Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(BAD_EMAIL)]));
-    assert.equal(scan(['--tree'], { cwd: repo }).status, 0);
+    const line = `x ${BAD_EMAIL}\n`;
+    writeFileSync(join(repo, 'b.bin'), Buffer.concat([Buffer.from([0, 1, 2]), Buffer.from(line)]));
+    writeFileSync(join(repo, 'le.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(line, 'utf16le')]));
+    writeFileSync(join(repo, 'be.txt'), Buffer.from(line, 'utf16le').swap16());
+    const result = scan(['--tree'], { cwd: repo });
+    for (const name of ['b.bin', 'le.txt', 'be.txt']) {
+      assert.match(result.out, new RegExp(`^${name.replace('.', '\\.')}:\\d+ {2}email$`, 'm'), name);
+    }
   });
 
   it('passes the real repository', () => {
@@ -411,5 +424,135 @@ describe('git hooks', () => {
     git(repo, ['add', 'c.txt']);
     git(repo, ['commit', '-q', '-m', 'good two']);
     git(repo, ['push', '-q', 'origin', 'main']);
+  });
+});
+
+describe('review fixes: false negatives', () => {
+  const stage = (repo, name, content) => {
+    mkdirSync(join(repo, name, '..'), { recursive: true });
+    writeFileSync(join(repo, name), content);
+    git(repo, ['add', '-f', name]);
+  };
+
+  it('flags personal text in a file name, in every mode', () => {
+    const repo = makeRepo();
+    const base = commitFile(repo, 'a.txt', 'one\n');
+    const name = `${BAD_EMAIL}.txt`;
+    stage(repo, name, 'harmless\n');
+    const staged = scan(['--staged'], { cwd: repo });
+    assertFails(staged, 'email');
+    assert.ok(!staged.out.includes('someone'));
+    assert.match(staged.out, /<redacted-path> {2}email/);
+    git(repo, ['commit', '-q', '-m', 'add']);
+    assertFails(scan(['--range', `${base}..HEAD`], { cwd: repo }), 'email');
+    assertFails(scan(['--tree'], { cwd: repo }), 'email');
+  });
+
+  it('flags NUL-containing content in staged and range diffs', () => {
+    const repo = makeRepo();
+    const base = commitFile(repo, 'a.txt', 'one\n');
+    writeFileSync(join(repo, '.gitattributes'), '*.dat binary\n*.u16 -diff\n');
+    git(repo, ['add', '.gitattributes']);
+    const line = `x ${BAD_EMAIL}\n`;
+    stage(repo, 'p.dat', Buffer.concat([Buffer.from([0, 1]), Buffer.from(line)]));
+    stage(repo, 'q.u16', Buffer.from(line, 'utf16le'));
+    const staged = scan(['--staged'], { cwd: repo });
+    assert.match(staged.out, /^p\.dat:\d+ {2}email$/m);
+    assert.match(staged.out, /^q\.u16:\d+ {2}email$/m);
+    git(repo, ['commit', '-q', '-m', 'add']);
+    const range = scan(['--range', `${base}..HEAD`], { cwd: repo });
+    assert.match(range.out, /p\.dat:\d+ {2}email$/m);
+    assert.match(range.out, /q\.u16:\d+ {2}email$/m);
+  });
+
+  it('flags .DS_Store by path', () => {
+    const repo = makeRepo();
+    stage(repo, 'sub/.DS_Store', 'x');
+    assertFails(scan(['--staged'], { cwd: repo }), 'local-state');
+  });
+
+  it('flags typechange and survives diff prefix config and odd names', () => {
+    const repo = makeRepo();
+    git(repo, ['config', 'diff.noprefix', 'true']);
+    git(repo, ['config', 'diff.mnemonicPrefix', 'true']);
+    stage(repo, 'we ird b/name.txt', `${BAD_EMAIL}\n`);
+    stage(repo, 'qu"ote.txt', `\nfine\n/Users/${FAKE_NAME}/x\n`);
+    const result = scan(['--staged'], { cwd: repo });
+    assert.match(result.out, /^we ird b\/name\.txt:1 {2}email$/m);
+    assert.match(result.out, /^qu"ote\.txt:3 {2}home-path$/m);
+  });
+
+  it('flags typechanged files (symlink to file)', () => {
+    const repo = makeRepo();
+    commitFile(repo, 'link', 'plain\n');
+    rmSync(join(repo, 'link'));
+    symlinkSync(`/Users/${FAKE_NAME}/x`, join(repo, 'link'));
+    git(repo, ['add', 'link']);
+    assertFails(scan(['--staged'], { cwd: repo }), 'home-path');
+  });
+
+  it('flags bare, lowercase and JSON-escaped home paths, but not URLs', () => {
+    const bad = [
+      `cd /Users/${FAKE_NAME}`,
+      `"/Users/${FAKE_NAME}"`,
+      `/users/${FAKE_NAME}/x`,
+      `/HOME/${FAKE_NAME}/x`,
+      `"C:\\\\Users\\\\${FAKE_NAME}\\\\x"`,
+      `c:/users/${FAKE_NAME}`,
+    ];
+    for (const text of bad) assertFails(scan(['--stdin'], { input: text }), 'home-path');
+    const good = ['https://api.invalid/users/someone', '/Users/Shared', '/home/runner'];
+    for (const text of good) assert.equal(scan(['--stdin'], { input: text }).status, 0, text);
+  });
+
+  it('flags encoded emails', () => {
+    for (const at of ['%40', '&#64;', '&#x40;', '&#X40;', '\\u0040', '\\x40', '&commat;']) {
+      assertFails(scan(['--stdin'], { input: `someone${at}example.com` }), 'email');
+    }
+  });
+
+  it('flags a .netrc password line', () => {
+    assertFails(scan(['--stdin'], { input: '  password hunter2\n' }), 'credential');
+  });
+
+  it('exits 2 without leaking when the private patterns file is unreadable', () => {
+    const repo = makeRepo();
+    const file = join(repo, '.git', 'info', 'private-patterns');
+    mkdirSync(file, { recursive: true }); // a directory: exists, cannot be read
+    const result = scan(['--stdin'], { cwd: repo, input: 'x' });
+    assert.equal(result.status, 2);
+    assert.ok(!result.out.includes(repo));
+  });
+
+  it('--tag checks tagger email and message', () => {
+    const repo = makeRepo();
+    commitFile(repo, 'a.txt', 'one\n');
+    git(repo, ['tag', '-a', 'v1', '-m', 'fine']);
+    const good = git(repo, ['rev-parse', 'v1']);
+    assert.equal(scan(['--tag', good], { cwd: repo }).status, 0);
+
+    const env = { GIT_COMMITTER_EMAIL: BAD_EMAIL };
+    git(repo, ['tag', '-a', 'v2', '-m', 'fine'], env);
+    assertFails(scan(['--tag', git(repo, ['rev-parse', 'v2'])], { cwd: repo }), 'tagger-email');
+
+    git(repo, ['tag', '-a', 'v3', '-m', `see ${BAD_EMAIL}`]);
+    assertFails(scan(['--tag', git(repo, ['rev-parse', 'v3'])], { cwd: repo }), 'email');
+  });
+
+  it('pre-push blocks an annotated tag with a bad tagger email', () => {
+    const repo = makeRepo();
+    cpSync(join(REPO_ROOT, 'scripts', 'check-privacy.js'), join(repo, 'scripts', 'check-privacy.js'));
+    cpSync(join(REPO_ROOT, '.githooks'), join(repo, '.githooks'), { recursive: true });
+    git(repo, ['config', 'core.hooksPath', '.githooks']);
+    const remote = mkdtempSync(join(tmpdir(), 'privacy-remote-'));
+    roots.push(remote);
+    git(remote, ['init', '-q', '--bare', '-b', 'main']);
+    git(repo, ['remote', 'add', 'origin', remote]);
+    commitFile(repo, 'a.txt', 'one\n');
+    git(repo, ['push', '-q', 'origin', 'main']);
+    git(repo, ['tag', '-a', 'bad', '-m', 'x'], { GIT_COMMITTER_EMAIL: BAD_EMAIL });
+    assert.throws(() => git(repo, ['push', '-q', 'origin', 'bad']));
+    git(repo, ['tag', '-a', 'good', '-m', 'x']);
+    git(repo, ['push', '-q', 'origin', 'good']);
   });
 });

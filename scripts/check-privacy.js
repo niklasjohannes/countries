@@ -10,9 +10,11 @@
 //   --tree                 every tracked or untracked-but-not-ignored file
 //   --stdin                text from stdin (PR bodies, commit messages, ...)
 //   --identity             the author/committer identity git would use right now
+//   --tag <sha>            an annotated tag object: tagger email and message
 // Modifier for --stdin:
-//   --commit-message       treat stdin as a commit message: ignore `#` comment
-//                          lines and also flag CI-skip markers
+//   --commit-message       treat stdin as a commit message: stop at the
+//                          `git commit -v` scissors line and also flag CI-skip
+//                          markers
 //
 // Output is `location  category` only. The matched text is never printed, so the
 // scanner cannot leak what it finds. Exit codes: 0 clean, 1 findings, 2 error.
@@ -44,10 +46,16 @@ const PLACEHOLDER_HOME_NAMES = new Set([
 ]);
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})/g;
+// Encoded forms of `@` that would otherwise hide an address.
+const ENCODED_AT_RE = /%40|&#0*64;|&#x0*40;|&commat;|\\u0040|\\x40/gi;
+
+// A home directory, with or without a trailing separator. The lookbehind stops
+// URLs such as `https://host/users/name` from matching; JSON-escaped Windows
+// paths (`C:\\Users\\name`) are covered by the repeated separators.
+const HOME_END = '(?=[\\\\/\'"`\\s)\\]},;:]|$)';
 const HOME_PATH_RES = [
-  /\/Users\/([A-Za-z0-9._-]+)\//g,
-  /\/home\/([A-Za-z0-9._-]+)\//g,
-  /\b[A-Za-z]:[\\/]Users[\\/]([A-Za-z0-9._ -]+)[\\/]/g,
+  new RegExp(`(?<![A-Za-z0-9._#-])/(?:Users|home)/([A-Za-z0-9._-]+)${HOME_END}`, 'gi'),
+  new RegExp(`(?<![A-Za-z0-9])[A-Za-z]:[\\\\/]+Users[\\\\/]+([A-Za-z0-9._-]+)${HOME_END}`, 'gi'),
 ];
 
 // Credential shapes need realistic lengths, so prefix lists such as `ghp_…` pass.
@@ -57,6 +65,7 @@ const CREDENTIAL_RES = [
   /\bsk-ant-[A-Za-z0-9_-]{20,}/,
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/,
   /\bmachine\s+\S+\s+login\s+\S+/, // .netrc entry
+  /^\s*password\s+\S+/i, // .netrc password line
   /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----/,
 ];
 
@@ -71,6 +80,7 @@ const LOCAL_STATE_PATH_RES = [
   /(^|\/)\.claude\/(projects|transcripts)\//,
   /(^|\/)\.tmp\//,
   /(^|\/)\.netrc$/,
+  /(^|\/)\.DS_Store$/,
   /(^|\/)[^/]*transcript[^/]*\.jsonl$/i,
 ];
 
@@ -120,11 +130,17 @@ function loadPrivatePatterns() {
   }
   const file = join(commonDir, 'info', 'private-patterns');
   if (!existsSync(file)) return [];
-  return readFileSync(file, 'utf8')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '' && !line.startsWith('#'))
-    .map((line) => line.toLowerCase());
+  try {
+    return readFileSync(file, 'utf8')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line !== '' && !line.startsWith('#'))
+      .map((line) => line.toLowerCase());
+  } catch {
+    // Fail closed, without a path or stack that could expose anything.
+    process.stderr.write('privacy check ERROR: private patterns file is unreadable\n');
+    process.exit(2);
+  }
 }
 
 const PRIVATE_PATTERNS = loadPrivatePatterns();
@@ -140,7 +156,7 @@ function categoriseLine(text, file) {
   const found = new Set();
   const isFixture = FIXTURE_FILES.has(file);
 
-  for (const match of text.matchAll(EMAIL_RE)) {
+  for (const match of text.replace(ENCODED_AT_RE, '@').matchAll(EMAIL_RE)) {
     const email = match[0].toLowerCase();
     const domain = match[1].toLowerCase();
     if (ALLOWED_EMAILS.has(email)) continue;
@@ -216,9 +232,23 @@ function printable(file) {
  * @param {string} [prefix] Prefix for the location label (e.g. a short sha).
  */
 function scanPath(report, file, prefix = '') {
-  if (LOCAL_STATE_PATH_RES.some((re) => re.test(file))) {
-    report.add(`${prefix}${printable(file)}`, null, 'local-state');
-  }
+  const label = `${prefix}${printable(file)}`;
+  if (LOCAL_STATE_PATH_RES.some((re) => re.test(file))) report.add(label, null, 'local-state');
+  for (const category of categoriseLine(file, file)) report.add(label, null, category);
+}
+
+/**
+ * Turn file content into scannable text. Text passes through. Content with NUL
+ * bytes (binary, or UTF-16 with or without a BOM) has its NULs removed, which
+ * rejoins UTF-16 characters, and is cut into runs of printable ASCII.
+ *
+ * @param {Buffer} buffer File content.
+ * @returns {string} Text to scan.
+ */
+function decodeContent(buffer) {
+  if (!buffer.includes(0)) return buffer.toString('utf8');
+  const stripped = Buffer.from(buffer.filter((byte) => byte !== 0));
+  return stripped.toString('latin1').replace(/[^\x20-\x7e\n]+/g, '\n');
 }
 
 /**
@@ -242,10 +272,12 @@ function scanText(report, text, file, label, skipLines = new Set()) {
  *
  * @param {Report} report Findings sink.
  * @param {string} diff Diff text.
+ * @param {string[]} names Touched paths, in diff order (from `--name-only -z`).
  * @param {string} [prefix] Prefix for location labels.
  */
-function scanDiff(report, diff, prefix = '') {
+function scanDiff(report, diff, names, prefix = '') {
   let file = '';
+  let fileIndex = 0;
   let oldLeft = 0;
   let newLeft = 0;
   let newLine = 0;
@@ -253,7 +285,7 @@ function scanDiff(report, diff, prefix = '') {
   for (const raw of diff.split('\n')) {
     if (oldLeft > 0 || newLeft > 0) {
       if (raw.startsWith('+')) {
-        for (const category of categoriseLine(raw.slice(1), file)) {
+        for (const category of categoriseLine(raw.slice(1).replace(/\0/g, ''), file)) {
           report.add(`${prefix}${printable(file)}`, newLine, category);
         }
         newLeft -= 1;
@@ -264,8 +296,8 @@ function scanDiff(report, diff, prefix = '') {
       continue;
     }
     if (raw.startsWith('diff --git ')) {
-      const at = raw.lastIndexOf(' b/');
-      file = at === -1 ? '' : raw.slice(at + 3).replace(/^"|"$/g, '');
+      file = names[fileIndex] ?? '';
+      fileIndex += 1;
       if (file) scanPath(report, file, prefix);
       continue;
     }
@@ -278,7 +310,12 @@ function scanDiff(report, diff, prefix = '') {
   }
 }
 
-const DIFF_ARGS = ['-U0', '--no-color', '--no-ext-diff', '--no-textconv'];
+// `--text` stops `binary`/`-diff` attributes from hiding content; the prefixes are
+// pinned so user config (`diff.noprefix`, ...) cannot change the output shape.
+const DIFF_ARGS = [
+  '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--text', '--no-renames',
+  '--src-prefix=a/', '--dst-prefix=b/',
+];
 
 // ---- Modes ----
 
@@ -286,7 +323,9 @@ const DIFF_ARGS = ['-U0', '--no-color', '--no-ext-diff', '--no-textconv'];
  * @param {Report} report Findings sink.
  */
 function scanStaged(report) {
-  scanDiff(report, git(['diff', '--cached', '--diff-filter=ACMR', ...DIFF_ARGS]));
+  const args = ['diff', '--cached', '--diff-filter=ACMRT'];
+  const names = git([...args, '--name-only', '-z', '--no-renames']).split('\0').filter(Boolean);
+  scanDiff(report, git([...args, ...DIFF_ARGS]), names);
 }
 
 /**
@@ -304,8 +343,7 @@ function scanTree(report) {
     } catch {
       continue; // listed but deleted from the working tree
     }
-    if (buffer.subarray(0, 8000).includes(0)) continue; // binary
-    scanText(report, buffer.toString('utf8'), file, printable(file));
+    scanText(report, decodeContent(buffer), file, printable(file));
   }
 }
 
@@ -337,11 +375,11 @@ function scanCommits(report, shas) {
     scanText(report, message, '', `commit ${short} message`);
     if (CI_SKIP_RE.test(message)) report.add(`commit ${short} message`, null, 'ci-skip-marker');
 
-    scanDiff(
-      report,
-      git(['show', '--format=', '--diff-merges=first-parent', ...DIFF_ARGS, sha]),
-      `${short} `,
-    );
+    const showArgs = ['show', '--format=', '--diff-merges=first-parent'];
+    const names = git([...showArgs, '--name-only', '-z', '--no-renames', sha])
+      .split('\0')
+      .filter(Boolean);
+    scanDiff(report, git([...showArgs, ...DIFF_ARGS, sha]), names, `${short} `);
   }
 }
 
@@ -383,6 +421,31 @@ function scanNewCommits(report, sha) {
 }
 
 /**
+ * Scan an annotated tag (and any tags it points to): tagger email and message.
+ *
+ * @param {Report} report Findings sink.
+ * @param {string} sha Tag object id.
+ */
+function scanTag(report, sha) {
+  let id = assertSafeRev(sha);
+  for (let depth = 0; depth < 10; depth += 1) {
+    if (git(['cat-file', '-t', id]).trim() !== 'tag') return;
+    const short = id.slice(0, 7);
+    const raw = git(['cat-file', 'tag', id]);
+    const split = raw.indexOf('\n\n');
+    const headers = (split === -1 ? raw : raw.slice(0, split)).split('\n');
+    const message = split === -1 ? '' : raw.slice(split + 2);
+    const tagger = headers.find((h) => h.startsWith('tagger '));
+    const email = tagger?.match(/<([^>]*)>/);
+    if (tagger) checkEmail(report, email ? email[1] : '', `tag ${short}`, 'tagger-email');
+    scanText(report, message, '', `tag ${short} message`);
+    if (CI_SKIP_RE.test(message)) report.add(`tag ${short} message`, null, 'ci-skip-marker');
+    id = headers.find((h) => h.startsWith('object '))?.slice(7) ?? '';
+    if (!id) return;
+  }
+}
+
+/**
  * @param {Report} report Findings sink.
  */
 function scanIdentity(report) {
@@ -397,37 +460,37 @@ function scanIdentity(report) {
 
 /**
  * @param {Report} report Findings sink.
- * @param {boolean} asCommitMessage Ignore `#` lines and flag CI-skip markers.
+ * @param {boolean} asCommitMessage Stop at the scissors line and flag CI-skip markers.
  */
 function scanStdin(report, asCommitMessage) {
   const text = readFileSync(0, 'utf8');
-  const skip = new Set();
+  // `#` lines are scanned: `git commit -m` keeps them. Only the `git commit -v`
+  // scissors line and the diff below it are not part of the message.
+  let kept = text;
   if (asCommitMessage) {
-    text.split('\n').forEach((line, i) => {
-      if (line.startsWith('#')) skip.add(i + 1);
-    });
+    const scissors = text.search(/^# -{24} >8 -{24}$/m);
+    if (scissors !== -1) kept = text.slice(0, scissors);
   }
-  scanText(report, text, '', '<stdin>', skip);
-  if (asCommitMessage) {
-    const kept = text.split('\n').filter((_, i) => !skip.has(i + 1)).join('\n');
-    if (CI_SKIP_RE.test(kept)) report.add('<stdin>', null, 'ci-skip-marker');
-  }
+  scanText(report, kept, '', '<stdin>');
+  if (asCommitMessage && CI_SKIP_RE.test(kept)) report.add('<stdin>', null, 'ci-skip-marker');
 }
 
 // ---- Entry point ----
 
 const USAGE = `usage: check-privacy.js --staged | --range <a>..<b> | --new-commits <sha> | --tree
-       | --identity | --stdin [--commit-message]`;
+       | --tag <sha> | --identity | --stdin [--commit-message]`;
 
 /**
  * @param {string[]} argv Arguments after the script name.
  * @returns {number} Exit code.
  */
 function main(argv) {
-  const modes = ['--staged', '--range', '--new-commits', '--tree', '--identity', '--stdin'];
+  const modes = [
+    '--staged', '--range', '--new-commits', '--tag', '--tree', '--identity', '--stdin',
+  ];
   const used = argv.filter((a) => modes.includes(a));
   const asCommitMessage = argv.includes('--commit-message');
-  const takesValue = ['--range', '--new-commits'];
+  const takesValue = ['--range', '--new-commits', '--tag'];
   const expected = used.length + used.filter((a) => takesValue.includes(a)).length
     + (asCommitMessage ? 1 : 0);
   if (used.length !== 1 || argv.length !== expected || (asCommitMessage && used[0] !== '--stdin')) {
@@ -443,6 +506,7 @@ function main(argv) {
     else if (mode === '--tree') scanTree(report);
     else if (mode === '--identity') scanIdentity(report);
     else if (mode === '--stdin') scanStdin(report, asCommitMessage);
+    else if (mode === '--tag') scanTag(report, value);
     else if (mode === '--range') scanRange(report, value);
     else scanNewCommits(report, value);
   } catch (error) {
