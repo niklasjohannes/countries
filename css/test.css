@@ -1,0 +1,70 @@
+/*
+ * Test and results views (js/views/test.js, js/views/results.js). Test mode
+ * shows no right/wrong feedback, so nothing here uses the accent. Tokens and
+ * shared pieces (`.view-bar`, `.view-actions`, `.score`, `.sheet`) are in
+ * css/style.css; the map box and question UI in css/practice.css.
+ */
+
+/* ---- Test ---- */
+
+.test-bar {
+  margin-bottom: var(--space-2);
+}
+
+.test-exit {
+  margin-left: calc(-1 * var(--space-3));
+}
+
+/* ---- Results ---- */
+
+.results-scope {
+  margin: calc(-1 * var(--space-4)) 0 var(--space-8);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-muted);
+}
+
+/* The results map is a fixed, compact box: the list below it matters too. */
+.results-map {
+  flex: none;
+  height: min(60vw, 18rem);
+  min-height: 0;
+  margin-bottom: var(--space-6);
+}
+
+.results-missed-title {
+  margin-bottom: var(--space-3);
+}
+
+.results-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results-miss {
+  display: grid;
+  min-width: 0;
+}
+
+.results-miss-answer {
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+  font-weight: var(--font-weight-muted);
+}
+
+.results-none {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-muted);
+}
+
+/* A long miss list scrolls under the actions, which stay in thumb reach. */
+.results-actions {
+  position: sticky;
+  bottom: 0;
+  margin-bottom: calc(-1 * max(var(--gutter), env(safe-area-inset-bottom)));
+  padding-bottom: max(var(--gutter), env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, transparent, var(--color-bg) var(--space-6));
+}

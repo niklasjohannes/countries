@@ -1,13 +1,76 @@
 /*
- * Base styles: tokens, reset, layout, shared controls and the home screen.
- * Deliberately minimal and functional: the full visual design lands in
- * issue 11. Mobile-first, written for a 320-430 px wide iPhone.
+ * Base styles: the one design-token set, reset, layout, shared controls and
+ * the home screen. Mobile-first: written for a 320-430 px wide iPhone,
+ * widened up to `--content-max` on larger screens.
  *
- * View-specific rules live in their own files, scoped under `.view-<name>`.
+ * The look is flags' final one (PLAN decision 4): Courier Prime, black /
+ * white / greys plus exactly one muted accent (`--color-accent`), square
+ * corners, hard offset shadows, pixel check/cross marks (img/mark-*.svg).
+ * The accent marks the target on the map and "you got it right"; a miss is
+ * black or grey with an icon and an outline. No red/green anywhere. Contrast
+ * against white: text 18.9:1, muted text 5.7:1, accent 5.2:1.
+ *
+ * View-specific rules live in their own files: css/map.css (map renderer),
+ * css/practice.css (practice, question UI, round summary), css/test.css
+ * (test and results).
  */
+
+/* ---- Fonts ---- */
+
+/*
+ * Courier Prime 3.018 (fonts/, SIL OFL 1.1, see THIRD_PARTY_NOTICES.md),
+ * Regular and Bold; 600 resolves to Bold. `swap` shows the fallback until
+ * it arrives, which only happens on a first visit: index.html preloads both
+ * files and sw.js precaches them.
+ *
+ * The fallback face is a local Courier New (or Courier) matched to Courier
+ * Prime's metrics, so the swap barely rewraps or moves the text. Both are
+ * monospaced at 0.6 em (measured: within 0.1%), so `size-adjust` is 100%
+ * and the overrides are simply Courier Prime's ascent (0.781 em) and
+ * descent (0.342 em).
+ */
+@font-face {
+  font-family: "Courier Prime";
+  src: url("../fonts/CourierPrime-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Courier Prime";
+  src: url("../fonts/CourierPrime-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Courier Prime Fallback";
+  src: local("Courier New"), local("CourierNewPSMT"), local("Courier");
+  font-weight: 400 500;
+  size-adjust: 100%;
+  ascent-override: 78.1%;
+  descent-override: 34.2%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Courier Prime Fallback";
+  src: local("Courier New Bold"), local("CourierNewPS-BoldMT"), local("Courier Bold"), local("Courier-Bold");
+  font-weight: 600 700;
+  size-adjust: 100%;
+  ascent-override: 78.1%;
+  descent-override: 34.2%;
+  line-gap-override: 0%;
+}
+
+/* ---- Tokens ---- */
 
 :root {
   color-scheme: light;
+
+  /* Monochrome palette plus one muted accent. */
   --color-bg: #ffffff;
   --color-surface: #f4f4f4;
   --color-border: #d6d6d6;
@@ -16,18 +79,49 @@
   --color-text-muted: #666666;
   --color-inverse: #ffffff;
   --color-accent: #4f7282;
+  --color-accent-soft: rgb(79 114 130 / 0.35);
   --color-backdrop: rgb(17 17 17 / 0.4);
-  --font-sans: "Courier New", Courier, ui-monospace, monospace;
+
+  /* The map (css/map.css): light-grey land, a lighter context, thin dark
+     borders, a white sea. */
+  --map-sea: #ffffff;
+  --map-land: #d4d4d4;
+  --map-context: #ececec;
+  --map-line: #4a4a4a;
+  --map-shade: #3d3d3d;
+
+  --font-sans: "Courier Prime", "Courier Prime Fallback", "Courier New", Courier, ui-monospace, monospace;
+  --font-size-base: 1.0625rem;
+  --font-size-small: 0.875rem;
+  /* Muted (grey) secondary text is set bold: Courier Prime's regular
+     strokes are thin, and thin grey reads weak. */
+  --font-weight-muted: 700;
+
+  --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
   --space-6: 1.5rem;
   --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* Square corners for the pixel look. */
+  --radius: 0;
+  /* Hard, unblurred offset shadow under buttons and sheets. */
+  --pixel-offset: 0.25rem;
+  --pixel-shadow: var(--pixel-offset) var(--pixel-offset) 0 var(--color-text);
+  /* 48 px, above the 44 px minimum tap target. */
   --tap-min: 3rem;
   --content-max: 32rem;
   --gutter: 1.25rem;
+
   --focus-ring: 3px solid var(--color-accent);
+  --pulse-duration: 700ms;
+  /* Animations move in a few hard steps, like a sprite. */
+  --pixel-steps: steps(4, end);
 }
+
+/* ---- Reset ---- */
 
 *,
 *::before,
@@ -47,56 +141,138 @@ html {
 
 body {
   margin: 0;
-  font-family: var(--font-sans);
-  font-size: 1.0625rem;
-  line-height: 1.4;
-  color: var(--color-text);
+  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+  /* Long words (country names) wrap instead of widening the page. */
+  overflow-wrap: anywhere;
 }
 
+h1 {
+  margin: 0 0 var(--space-6);
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.125rem;
+  line-height: 1.3;
+}
+
+p {
+  margin: 0 0 var(--space-4);
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---- Layout ---- */
+
+/*
+ * One column, full height, safe-area aware (`viewport-fit=cover` in
+ * index.html). Each view is a flex column, so `.view-actions` can sit at the
+ * bottom, in thumb reach.
+ */
 .app {
+  display: flex;
+  flex-direction: column;
   max-width: var(--content-max);
+  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0 auto;
-  padding: var(--space-6) var(--gutter);
-  padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom));
+  padding:
+    max(var(--gutter), env(safe-area-inset-top))
+    max(var(--gutter), env(safe-area-inset-right))
+    max(var(--gutter), env(safe-area-inset-bottom))
+    max(var(--gutter), env(safe-area-inset-left));
 }
 
 .view {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
-  gap: var(--space-6);
+  min-width: 0;
 }
 
 .view:focus {
   outline: none;
 }
 
-h1,
-h2,
-p {
-  margin: 0;
+/* Primary actions: pushed to the bottom of the screen. */
+.view-actions {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-6);
 }
 
 .status {
   color: var(--color-text-muted);
+  font-weight: var(--font-weight-muted);
+}
+
+/* Read by screen readers, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---- Buttons ---- */
 
-.button,
-.button-quiet {
-  font: inherit;
-  cursor: pointer;
-  min-height: var(--tap-min);
-  -webkit-tap-highlight-color: transparent;
-}
-
 .button {
-  padding: 0 var(--space-6);
+  display: block;
+  width: 100%;
+  min-height: 3.25rem;
+  padding: var(--space-3) var(--space-4);
   border: 2px solid var(--color-text);
+  border-radius: var(--radius);
   background: var(--color-bg);
   color: var(--color-text);
-  font-weight: 700;
+  box-shadow: var(--pixel-shadow);
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 80ms steps(1, end), box-shadow 80ms steps(1, end);
+}
+
+/* Pressed: the button drops into its shadow, like a pixel-art key. */
+.button:active {
+  transform: translate(var(--pixel-offset), var(--pixel-offset));
+  box-shadow: 0 0 0 var(--color-text);
+}
+
+/* The focus ring clears the shadow instead of cutting through it. */
+.button:focus-visible {
+  outline-offset: calc(var(--pixel-offset) + 2px);
 }
 
 .button-primary {
@@ -104,50 +280,75 @@ p {
   color: var(--color-inverse);
 }
 
-.button:disabled {
-  opacity: 0.5;
-  cursor: default;
+.button-secondary {
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
+/* Small text button for headers (Exit). Still a full-size tap target. */
 .button-quiet {
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  margin-left: calc(-1 * var(--space-3));
   border: 0;
+  border-radius: var(--radius);
   background: none;
   color: var(--color-text-muted);
-  text-decoration: underline;
-  padding: 0 var(--space-3);
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
-.button:focus-visible,
-.button-quiet:focus-visible,
-.choice-input:focus-visible + .choice-label {
-  outline: var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.view-actions {
+/* Header row of a question screen: Exit on the left, counter on the right. */
+.view-bar {
   display: flex;
-  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
 }
 
-.view-actions > .button {
-  flex: 1;
+.view-counter {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-/* ---- Choice groups (chips, segmented) ---- */
+/* Big score line (practice summary and test results). */
+.score {
+  margin: 0 0 var(--space-8);
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-caption {
+  margin: 0 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-muted);
+}
+
+/* ---- Choice group (radio chips, js/ui.js `createChoiceGroup`) ---- */
 
 .choice-group {
-  border: 0;
-  margin: 0;
-  padding: 0;
   min-width: 0;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  border: 0;
 }
 
 .choice-group-legend {
-  padding: 0;
   margin-bottom: var(--space-2);
+  padding: 0;
   color: var(--color-text-muted);
-  font-size: 0.875rem;
-  font-weight: 700;
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .choice-group-options {
@@ -158,23 +359,30 @@ p {
 
 .choice {
   position: relative;
+  display: block;
+  min-width: 0;
 }
 
+/* Visually hidden but still focusable and announced. */
 .choice-input {
   position: absolute;
-  opacity: 0;
   inset: 0;
   margin: 0;
+  opacity: 0;
   cursor: pointer;
 }
 
 .choice-label {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-height: var(--tap-min);
   padding: 0 var(--space-4);
-  border: 2px solid var(--color-border-strong);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
   background: var(--color-bg);
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .choice-input:checked + .choice-label {
@@ -183,50 +391,39 @@ p {
   color: var(--color-inverse);
 }
 
-.choice-group-segmented .choice-group-options {
-  flex-wrap: nowrap;
-  gap: 0;
+.choice-input:focus-visible + .choice-label {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 
-.choice-group-segmented .choice {
-  flex: 1;
+/* Segmented variant (`variant: 'segmented'`): equal-width joined halves. */
+.choice-group-segmented .choice-group-options {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: 0;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
 }
 
 .choice-group-segmented .choice-label {
-  justify-content: center;
+  border-color: transparent;
+  background: transparent;
 }
 
-/* ---- Home ---- */
+/* ---- Sheet (a modal `<dialog>`, e.g. the test's exit confirm) ---- */
 
-.home-subregions:empty {
-  display: none;
-}
-
-.home-title {
-  font-size: 1.75rem;
-}
-
-.country-count {
-  font-size: 1.125rem;
-}
-
-.country-count-number {
-  font-weight: 700;
-  font-size: 1.75rem;
-}
-
-.home-footer {
-  display: flex;
-  justify-content: center;
-}
-
-/* ---- Sheets (backup dialog) ---- */
-
+/* A bottom sheet on phones, in thumb reach; a centred card on wide screens. */
 .sheet {
-  width: calc(100% - 2 * var(--gutter));
+  width: 100%;
   max-width: var(--content-max);
+  margin: auto auto 0;
   padding: 0;
-  border: 2px solid var(--color-text);
+  border: 0;
+  border-top: 2px solid var(--color-text);
+  border-radius: var(--radius) var(--radius) 0 0;
   background: var(--color-bg);
   color: var(--color-text);
 }
@@ -235,23 +432,130 @@ p {
   background: var(--color-backdrop);
 }
 
+.sheet[open] {
+  animation: sheet-in 180ms steps(3, end);
+}
+
 .sheet-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-6);
+  padding:
+    var(--space-6)
+    max(var(--gutter), env(safe-area-inset-right))
+    max(var(--gutter), env(safe-area-inset-bottom))
+    max(var(--gutter), env(safe-area-inset-left));
 }
 
 .sheet-title {
+  margin-bottom: var(--space-2);
   font-size: 1.25rem;
 }
 
-.sheet-status {
+.sheet-text {
+  margin-bottom: var(--space-6);
   color: var(--color-text-muted);
+  font-weight: var(--font-weight-muted);
 }
 
 .sheet-actions {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--space-3);
+}
+
+/* Outcome of a sheet action (e.g. the backup's "Exported 42 countries."). */
+.sheet-status {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-6);
+  font-weight: 600;
+}
+
+@media (min-width: 40rem) {
+  .sheet {
+    max-width: 26rem;
+    margin: auto;
+    border: 2px solid var(--color-text);
+    border-radius: var(--radius);
+    box-shadow: calc(2 * var(--pixel-offset)) calc(2 * var(--pixel-offset)) 0 var(--color-text);
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(1.5rem);
+    opacity: 0;
+  }
+}
+
+/* ---- Home ---- */
+
+.home-title {
+  margin-bottom: var(--space-8);
+  font-size: 2rem;
+}
+
+.home-subregions:empty {
+  display: none;
+}
+
+.country-count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.country-count-number {
+  font-size: 3.5rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.country-count-label {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-muted);
+}
+
+/* Quiet "Backup" link under the actions; opens the backup sheet. */
+.home-footer {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-2) 0 calc(-1 * var(--space-3));
+}
+
+.home-backup {
+  margin-left: 0;
+  font-size: var(--font-size-small);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* ---- Motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ---- Forced colours ---- */
+
+/* Windows High Contrast: keep the borders the buttons and sheets rely on. */
+@media (forced-colors: active) {
+  .button,
+  .sheet {
+    border-color: CanvasText;
+  }
+
+  .button-primary {
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .choice-input:checked + .choice-label {
+    background: Highlight;
+    color: HighlightText;
+  }
 }
