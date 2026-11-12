@@ -4,14 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+    # `edited` re-checks the PR title and body, which end up in the squash commit.
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
 
-# Cancel superseded runs on the same ref, so a new push replaces an older run.
+# Cancel superseded runs, but only for pull requests. A push to main is never
+# cancelled, and its group is keyed on the commit, so a newer push cannot replace
+# a run that is still queued either.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -19,6 +23,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -30,3 +36,53 @@ jobs:
       # other default patterns) across the repo, and exits 0 when it finds none.
       - name: Run tests
         run: node --test
+
+  # Layer 4 of the privacy guard (docs/SPEC.md). Needs the full history to see
+  # the whole base..head range. The job name `privacy` is the status check to
+  # require in branch protection.
+  privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # Event values go through env, never straight into the script.
+      - name: Scan pull request commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/check-privacy.js --range "$BASE_SHA..$HEAD_SHA"
+
+      # The title and body become the squash commit message, so scan them like one.
+      - name: Scan pull request title and body
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" | node scripts/check-privacy.js --stdin --commit-message
+
+      # Catches a squash merge that GitHub authored with a non-noreply email.
+      - name: Scan pushed commits
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          # After a force push the previous tip may be gone. Fail loudly, never pass.
+          if ! printf '%s' "$BEFORE_SHA" | grep -Eq '^0+$' \
+            && ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+            echo "privacy check ERROR: the previous tip is not in the fetched history (force push?)"
+            exit 1
+          fi
+          node scripts/check-privacy.js --range "$BEFORE_SHA..$AFTER_SHA"
+
+      - name: Scan whole tree
+        run: node scripts/check-privacy.js --tree

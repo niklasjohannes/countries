@@ -1,0 +1,26 @@
+#!/bin/sh
+# Privacy guard: every commit being pushed must have allowlisted author and
+# committer emails, a clean message and a clean diff.
+# stdin lines: <local ref> <local sha> <remote ref> <remote sha>
+cd "$(git rev-parse --show-toplevel)" || exit 1
+while read -r local_ref local_sha _remote_ref remote_sha; do
+  case "$local_sha" in
+    *[!0]*) ;;          # not all zeros: a real push
+    *) continue ;;      # all zeros: branch deletion, nothing to scan
+  esac
+  case "$local_ref" in
+    refs/tags/*)
+      # An annotated tag carries its own tagger email and message.
+      if [ "$(git cat-file -t "$local_sha")" = tag ]; then
+        node scripts/check-privacy.js --tag "$local_sha" || exit 1
+      fi
+      ;;
+  esac
+  if [ "${remote_sha#*[!0]}" != "$remote_sha" ] && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    node scripts/check-privacy.js --range "$remote_sha..$local_sha" || exit 1
+  else
+    # New branch (or remote tip unknown locally): scan commits no remote has.
+    node scripts/check-privacy.js --new-commits "$local_sha" || exit 1
+  fi
+done
+exit 0
