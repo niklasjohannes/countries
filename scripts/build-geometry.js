@@ -1307,28 +1307,32 @@ export function deriveNeighbours(entries, adjacency) {
   for (const island of islands) {
     const a = caps.get(island);
     const va = vectors.get(island);
-    const candidates = [];
-    for (const other of codes) {
-      if (other === island) continue;
-      const b = caps.get(other);
-      const between = Math.acos(Math.min(1, a.unit[0] * b.unit[0] + a.unit[1] * b.unit[1] + a.unit[2] * b.unit[2]));
-      if (between - a.radius - b.radius > capRad && !remote.has(island)) continue;
-      const vb = vectors.get(other);
-      let best = -1;
-      for (let i = 0; i < va.length; i += 3) {
-        for (let j = 0; j < vb.length; j += 3) {
-          const dot = va[i] * vb[j] + va[i + 1] * vb[j + 1] + va[i + 2] * vb[j + 2];
-          if (dot > best) best = dot;
+    // `all` searches every code; otherwise only those whose cap could be within reach.
+    const rank = (all) => {
+      const found = [];
+      for (const other of codes) {
+        if (other === island) continue;
+        const b = caps.get(other);
+        const between = Math.acos(Math.min(1, a.unit[0] * b.unit[0] + a.unit[1] * b.unit[1] + a.unit[2] * b.unit[2]));
+        if (!all && between - a.radius - b.radius > capRad && !remote.has(island)) continue;
+        const vb = vectors.get(other);
+        let best = -1;
+        for (let i = 0; i < va.length; i += 3) {
+          for (let j = 0; j < vb.length; j += 3) {
+            const dot = va[i] * vb[j] + va[i + 1] * vb[j + 1] + va[i + 2] * vb[j + 2];
+            if (dot > best) best = dot;
+          }
         }
+        found.push({ other, distance: Math.acos(Math.min(1, best)) });
       }
-      const distance = Math.acos(Math.min(1, best));
-      candidates.push({ other, distance });
-    }
-    candidates.sort((x, y) => x.distance - y.distance || (x.other < y.other ? -1 : 1));
-    // Within the cap, up to `count`; a remote island (Saint Helena) still gets
-    // its single nearest entry, so no list is ever empty.
-    const withinCap = candidates.filter(({ distance }) => distance <= capRad);
-    const chosen = withinCap.length > 0 ? withinCap.slice(0, MARITIME_NEIGHBOURS.count) : candidates.slice(0, 1);
+      return found.sort((x, y) => x.distance - y.distance || (x.other < y.other ? -1 : 1));
+    };
+    // Within the cap, up to `count`. When nothing is within the cap, the single
+    // nearest entry of *all* codes (the filter above only skips entries that
+    // are surely beyond the cap, and the nearest of those can still beat the
+    // nearest that passed it), so no list is ever empty and it is the true nearest.
+    const withinCap = rank(false).filter(({ distance }) => distance <= capRad);
+    const chosen = withinCap.length > 0 ? withinCap.slice(0, MARITIME_NEIGHBOURS.count) : rank(true).slice(0, 1);
     for (const { other } of chosen) {
       neighbours.get(island).add(other);
       neighbours.get(other).add(island);

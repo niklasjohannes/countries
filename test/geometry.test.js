@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import {
   BREAKAWAY_MIN_SHARE,
   buildGeometryFull,
+  deriveNeighbours,
   makeProjection,
   placeLabel,
   pointInRings,
@@ -243,6 +244,25 @@ describe('context land', () => {
         assert.deepEqual(bbox, [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], `${name}.context.${code}`);
       }
     }
+  });
+});
+
+describe('deriveNeighbours: the single-nearest fallback', () => {
+  // `aa` is a speck at (0, 0). `cc` is a ring 50 degrees around it: its cap
+  // reaches `aa`, so it passes the cap filter, but its nearest vertex is 50
+  // degrees away. `bb` lies 40 degrees away and its cap is far enough to be
+  // filtered out. Nothing is within the 1,500 km cap, so the fallback must
+  // search every code and pick `bb`, the true nearest.
+  const entry = (ring) => ({ polygons: [[[...ring, ring[0]]]], label: ring[0] });
+  const entries = new Map([
+    ['aa', entry([[0, 0], [0.1, 0], [0, 0.1]])],
+    ['bb', entry([[40, 0], [70, 30], [100, 0], [70, -30]])],
+    ['cc', entry([[50, 0], [0, 50], [-50, 0], [0, -50]])]
+  ]);
+
+  it('gives an island with nothing in reach its true nearest entry, not the nearest that passed the filter', () => {
+    const { neighbours: result } = deriveNeighbours(entries, new Set());
+    assert.deepEqual(result.aa, ['bb']);
   });
 });
 
