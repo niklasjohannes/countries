@@ -1,0 +1,95 @@
+// Pure card logic: which way a card is asked, and which frame it is shown on.
+//
+// Pure module: no DOM, no `localStorage`, no clock, no `Math.random`. The
+// caller injects `rng` (`() => number` in `[0, 1)`).
+
+import { SUBREGIONS } from './srs.js';
+
+// ---- Tunables ----
+
+/** Share of tappable cards asked as name → tap (the rest are map → name). */
+export const TAP_CARD_SHARE = 0.25;
+
+/** From this `intervalDays` on, a card is mature and framed on its continent. */
+export const MATURE_INTERVAL_DAYS = 21;
+
+// ---- Directions ----
+
+/** The map shows an unlabelled outline; the user names it. */
+export const DIRECTION_MAP_TO_NAME = 'map-to-name';
+
+/** The prompt names a country; the user taps it on the map. */
+export const DIRECTION_NAME_TO_TAP = 'name-to-tap';
+
+// ---- Validation helpers ----
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ---- Public API ----
+
+/**
+ * Picks the direction of a card. Entries that are not tappable (`small`
+ * entries) are always map → name and do not consume `rng`; a tappable entry
+ * draws once from `rng` and is name → tap with probability `TAP_CARD_SHARE`.
+ *
+ * @param {{ tappable: boolean, small?: boolean }} entry The entry's `data/map-meta.json` record.
+ * @param {() => number} rng Random source returning numbers in `[0, 1)`.
+ * @returns {'map-to-name' | 'name-to-tap'} The card direction.
+ */
+export function pickDirection(entry, rng) {
+  if (!isPlainObject(entry)) {
+    throw new TypeError('`entry` must be a map-meta entry object.');
+  }
+  if (typeof entry.tappable !== 'boolean') {
+    throw new TypeError('`entry.tappable` must be a boolean.');
+  }
+  if (entry.small !== undefined && typeof entry.small !== 'boolean') {
+    throw new TypeError('`entry.small` must be a boolean when given.');
+  }
+  if (typeof rng !== 'function') {
+    throw new TypeError('`rng` must be a function returning a number in `[0, 1)`.');
+  }
+
+  if (!entry.tappable || entry.small === true) {
+    return DIRECTION_MAP_TO_NAME;
+  }
+  const draw = rng();
+  if (!Number.isFinite(draw) || draw < 0 || draw >= 1) {
+    throw new RangeError('`rng` must return a finite number in `[0, 1)`.');
+  }
+  return draw < TAP_CARD_SHARE ? DIRECTION_NAME_TO_TAP : DIRECTION_MAP_TO_NAME;
+}
+
+/**
+ * Picks the frame a card is shown on: its sub-region while young, its
+ * continent once `state.intervalDays >= MATURE_INTERVAL_DAYS`. A card that has
+ * never been answered (`state` is `null`) is young.
+ *
+ * @param {{ intervalDays: number } | null} state The card's SRS state, or `null` if unseen.
+ * @param {{ continent: string, subregion: string }} entry The country's `data/countries.json` record.
+ * @returns {string} A key into `data/map-meta.json` → `frames` (a sub-region or continent).
+ */
+export function pickFrame(state, entry) {
+  if (state !== null) {
+    if (!isPlainObject(state)) {
+      throw new TypeError('`state` must be a card state object or `null`.');
+    }
+    if (!Number.isInteger(state.intervalDays) || state.intervalDays < 0) {
+      throw new TypeError('`state.intervalDays` must be a non-negative integer.');
+    }
+  }
+  if (!isPlainObject(entry)) {
+    throw new TypeError('`entry` must be a `{ continent, subregion }` object.');
+  }
+  if (!Object.hasOwn(SUBREGIONS, entry.subregion)) {
+    throw new RangeError('`entry.subregion` must be one of the 22 known sub-regions.');
+  }
+  if (SUBREGIONS[entry.subregion] !== entry.continent) {
+    throw new RangeError('`entry.continent` must be the continent of `entry.subregion`.');
+  }
+
+  const isMature = state !== null && state.intervalDays >= MATURE_INTERVAL_DAYS;
+  return isMature ? entry.continent : entry.subregion;
+}
