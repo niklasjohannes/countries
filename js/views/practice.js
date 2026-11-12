@@ -38,6 +38,7 @@ import {
   getCurrentCode,
   getFeedbackPlan,
   getProgress,
+  getMissed,
   getScore,
   isReask,
   isRoundComplete,
@@ -48,6 +49,8 @@ import { guardQuestionArea, renderQuestion, renderTapPrompt } from '../question.
 import { ROUND_SIZE, pickRound } from '../srs.js';
 import { QUIZ_MODES, loadStates, localToday } from '../storage.js';
 import { el } from '../ui.js';
+
+const SUMMARY_MISSED_MAX = 10;
 
 let controller = null;
 
@@ -194,10 +197,22 @@ export function mount(container, context) {
     const doneButton = el('button', { type: 'button', class: 'button', 'data-action': 'done' }, ['Done']);
     keepGoingButton.addEventListener('click', () => startRound(), { signal });
     doneButton.addEventListener('click', () => navigate('home'), { signal });
+    const missed = getMissed(round).map((code) => byCode.get(code)?.name).filter((name) => typeof name === 'string');
+    // The round is over, so names are fine here. A short list: a long one would push the buttons away.
+    const shown = missed.slice(0, SUMMARY_MISSED_MAX);
+    const missedBlock = missed.length === 0
+      ? []
+      : [el('section', { class: 'practice-missed', 'aria-label': 'Missed this round' }, [
+        el('h2', { class: 'practice-missed-title' }, [`Missed (${missed.length})`]),
+        el('p', { class: 'practice-missed-list' }, [
+          missed.length > shown.length ? `${shown.join(', ')} and ${missed.length - shown.length} more` : shown.join(', ')
+        ])
+      ])];
     container.replaceChildren(
       el('h1', { class: 'practice-summary-title' }, ['Round complete']),
       el('p', { class: 'practice-score-caption' }, ['Correct']),
       el('p', { class: 'practice-score' }, [`${score.correct} / ${score.total}`]),
+      ...missedBlock,
       el('div', { class: 'view-actions practice-actions' }, [keepGoingButton, doneButton])
     );
     keepGoingButton.focus({ preventScroll: true });

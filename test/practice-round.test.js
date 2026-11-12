@@ -17,6 +17,7 @@ import {
   createRound,
   getCurrentCode,
   getFeedbackPlan,
+  getMissed,
   getProgress,
   getScore,
   isReask,
@@ -190,6 +191,23 @@ describe('planCard', () => {
 });
 
 // ---- Feedback ----
+
+describe('getMissed', () => {
+  it('lists first-answer misses in asked order, ignoring hits and re-asks', () => {
+    let round = createRound(['aa', 'bb', 'cc']);
+    round = answerCurrent(round, false).round; // aa missed, re-queued
+    round = answerCurrent(round, true).round; // bb
+    round = answerCurrent(round, false).round; // cc missed
+    assert.deepEqual(getMissed(round), ['aa', 'cc']);
+    round = answerCurrent(round, true).round; // aa re-ask: the miss stays
+    assert.deepEqual(getMissed(round), ['aa', 'cc']);
+  });
+
+  it('is empty before any answer and rejects a non-round', () => {
+    assert.deepEqual(getMissed(createRound(['aa'])), []);
+    assert.throws(() => getMissed({}));
+  });
+});
 
 describe('getFeedbackPlan', () => {
   it('advances a hit by itself, without labels', () => {

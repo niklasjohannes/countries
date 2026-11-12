@@ -197,6 +197,17 @@ export function getScore(round) {
   return { correct, total, percent: total === 0 ? 0 : Math.floor((correct * 100) / total) };
 }
 
+/**
+ * The countries missed on their first answer, in the order they were asked.
+ *
+ * @param {object} round A round from `createRound`.
+ * @returns {string[]} Codes of the first-answer misses.
+ */
+export function getMissed(round) {
+  assertRound(round);
+  return Object.entries(round.results).filter(([, correct]) => !correct).map(([code]) => code);
+}
+
 // ---- Persisting ----
 
 /**
