@@ -17,6 +17,8 @@
 //      polygons cut at the antimeridian, dissolve internal edges, project.
 //   5. Extract shared arcs, simplify each arc once (Visvalingam), quantise.
 //   6. Derive symmetric neighbours: shared arcs, plus maritime ones for islands.
+//      They are not written here: `scripts/build-map-meta.js` carries them into
+//      `data/map-meta.json`.
 
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
@@ -36,7 +38,6 @@ import {
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const COUNTRIES_PATH = 'data/countries.json';
 const OUTPUT_DIR = 'data/geometry';
-const NEIGHBOURS_FILE = 'neighbours.json';
 
 /** Mean Earth radius in km (spherical projections). */
 export const EARTH_RADIUS_KM = 6371;
@@ -1356,6 +1357,16 @@ export function serialiseGeometry(file) {
  * @returns {Map<string, string>} repo-relative path -> exact file text
  */
 export function buildGeometry(root = ROOT) {
+  return buildGeometryFull(root).outputs;
+}
+
+/**
+ * Build every output file, and also return the derived neighbour maps (which
+ * `scripts/build-map-meta.js` writes into `data/map-meta.json`).
+ * @param {string} [root] repository root
+ * @returns {{outputs: Map<string, string>, land: Record<string, string[]>, neighbours: Record<string, string[]>}}
+ */
+export function buildGeometryFull(root = ROOT) {
   if (typeof root !== 'string') throw new TypeError('`root` must be a path string.');
   const countriesLayer = readPinnedJson(NATURAL_EARTH.files.countries, root);
   const breakawayLayer = readPinnedJson(NATURAL_EARTH.files.breakaway, root);
@@ -1381,13 +1392,7 @@ export function buildGeometry(root = ROOT) {
   outputs.set(`${OUTPUT_DIR}/world.json`, serialiseGeometry(world));
 
   const { land, neighbours } = deriveNeighbours(entries, adjacency);
-  const block = (map) => Object.keys(map).map((code) => `${JSON.stringify(code)}:${JSON.stringify(map[code])}`).join(',\n');
-  const header = { source: 'scripts/build-geometry.js', maritime: MARITIME_NEIGHBOURS };
-  outputs.set(
-    `${OUTPUT_DIR}/${NEIGHBOURS_FILE}`,
-    `{"meta":${JSON.stringify(header)},"land":{\n${block(land)}\n},"neighbours":{\n${block(neighbours)}\n}}\n`
-  );
-  return outputs;
+  return { outputs, land, neighbours };
 }
 
 /**

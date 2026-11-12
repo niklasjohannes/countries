@@ -1,4 +1,4 @@
-import { describe, it, before } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 
 import {
   BREAKAWAY_MIN_SHARE,
-  buildGeometry,
+  buildGeometryFull,
   makeProjection,
   placeLabel,
   pointInRings,
@@ -23,7 +23,10 @@ const { countries } = JSON.parse(read('data/countries.json'));
 const files = Object.fromEntries(
   [...CONTINENTS, 'world'].map((name) => [name, JSON.parse(read(`data/geometry/${name}.json`))])
 );
-const { land, neighbours } = JSON.parse(read('data/geometry/neighbours.json'));
+// One build serves the regeneration test and the neighbour tests. The
+// neighbours are written to data/map-meta.json by scripts/build-map-meta.js.
+const built = buildGeometryFull(ROOT);
+const { land, neighbours } = built;
 
 /** Project [lon, lat] into a file's integer coordinate space (unrounded). */
 function toFile(name, lon, lat) {
@@ -85,13 +88,10 @@ function overlaps(a, b, margin = 0) {
 }
 
 describe('geometry regeneration', () => {
-  let outputs;
-  before(() => {
-    outputs = buildGeometry(ROOT);
-  });
+  const { outputs } = built;
 
   it('is byte for byte what the generator produces', () => {
-    assert.ok(outputs.size >= 8);
+    assert.equal(outputs.size, 7, 'six continents and world.json');
     for (const [path, text] of outputs) {
       assert.equal(read(path), text, `${path} is out of date: run \`node scripts/build-geometry.js\``);
     }
