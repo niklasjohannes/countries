@@ -1,0 +1,5 @@
+.claude/settings.local.json
+.claude/worktrees/
+.tmp/
+.vendor-tmp/
+.DS_Store
