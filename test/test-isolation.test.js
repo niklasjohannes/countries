@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { createTestPass, getScopeCodes, isPassComplete, recordTestAnswer, scorePass } from '../js/test-pass.js';
+import { createTestPass, isPassComplete, recordTestAnswer, scorePass } from '../js/test-pass.js';
 import { SRS_STORAGE_KEY, MODE_STORAGE_KEY, loadStates, saveMode, saveStates } from '../js/storage.js';
 import { recordAnswer as recordPracticeAnswer } from '../js/practice-round.js';
 

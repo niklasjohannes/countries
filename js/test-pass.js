@@ -1,8 +1,8 @@
 // Test-mode pass (PLAN decision 13): every quizzed entry in the filter
 // exactly once, in random order, answered blind, then scored. Pure: no DOM, no
 // storage, no clock; the caller injects `rng`. Test mode never touches SRS
-// card state, so nothing here reads or writes it (and this file must not
-// import `js/storage.js`; test/test-isolation.test.js guards that).
+// card state, so nothing here reads or writes it: no storage or SRS write
+// function is referenced (test/test-isolation.test.js guards that).
 //
 // A pass is a frozen `{ filter, codes, answers }`:
 //   filter   `{ continent, subregion }`, each a slug or `null` for All.

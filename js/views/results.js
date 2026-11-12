@@ -12,7 +12,7 @@
 
 import { FRAME_LEVEL_CONTINENT, createMapView } from '../map-view.js';
 import { META_URL, getGeometryUrl, loadJson } from '../data.js';
-import { WORLD_KEY, deriveWorldMeta, getEntriesFrame, getResultsGeometryKey } from '../test-map.js';
+import { FALLBACK_RESULTS_VIEWPORT_PX, WORLD_KEY, deriveWorldMeta, getEntriesFrame, getResultsGeometryKey } from '../test-map.js';
 import { formatScore, scorePass } from '../test-pass.js';
 import { ALL_LABEL, CONTINENT_LABELS, MODE_LABELS, el, formatSubregion } from '../ui.js';
 
@@ -124,7 +124,7 @@ async function showMissedMap(mapBox, { filter, codes, signal }) {
       // in the page (a fixed fallback if it has no layout yet).
       frame = getEntriesFrame(geometry);
       const { width, height } = mapView.svg.getBoundingClientRect();
-      meta = deriveWorldMeta(geometry, frame, width > 0 && height > 0 ? { width, height } : { width: 335, height: 225 });
+      meta = deriveWorldMeta(geometry, frame, width > 0 && height > 0 ? { width, height } : FALLBACK_RESULTS_VIEWPORT_PX);
     } else {
       meta = mapMeta;
       frame = meta.frames[key];

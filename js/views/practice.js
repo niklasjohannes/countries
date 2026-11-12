@@ -160,7 +160,12 @@ export function mount(container, context) {
     if (isAnswered || sheet !== null || guard.isGuarded()) {
       return;
     }
-    mapView.markCandidates(pair);
+    try {
+      mapView.markCandidates(pair);
+    } catch (error) {
+      handleRoundError(error);
+      return;
+    }
     const choose = (code) => {
       closeSheet({ keepMarkers: true });
       handleAnswer(code === plan.code, code);
@@ -325,10 +330,11 @@ export function mount(container, context) {
   // Replaces the view with a message and a way out. Used for every failure
   // in a round: loading, planning, rendering and answering.
   function handleRoundError(error) {
-    console.error(error);
+    // After the view is gone (aborted) an error is only noise, so check first.
     if (signal.aborted) {
       return;
     }
+    console.error(error);
     clearAdvance();
     closeSheet();
     const back = el('button', { type: 'button', class: 'button' }, ['Back']);

@@ -17,6 +17,12 @@ export const WORLD_KEY = 'world';
 export const SMALL_SIDE_PX = 12;
 
 /**
+ * CSS px size assumed for the results map before it has a layout (about a
+ * phone's results box: 375 px less the gutters wide, `min(60vw, 18rem)` high).
+ */
+export const FALLBACK_RESULTS_VIEWPORT_PX = Object.freeze({ width: 335, height: 225 });
+
+/**
  * The continent a scope sits in, or `null` for "All".
  *
  * @param {{ continent?: string | null, subregion?: string | null }} filter The scope.
