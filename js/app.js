@@ -46,6 +46,7 @@
 import * as home from './views/home.js';
 import * as practice from './views/practice.js';
 import * as test from './views/test.js';
+import { watchResume } from './resume.js';
 import { el } from './ui.js';
 
 const DATA_URL = './data/countries.json';
@@ -142,7 +143,7 @@ function transition(name, params) {
     VIEWS[name].mount(container, Object.freeze({
       countries,
       navigate,
-      params: deepFreeze({ ...params })
+      params: deepFreeze(structuredClone(params))
     }));
   } catch (error) {
     showError(container, 'This screen failed to load. Reload to start again.', error);
@@ -155,6 +156,8 @@ function transition(name, params) {
 }
 
 async function start() {
+  // Before home first mounts, so its resume listeners run after these.
+  watchResume();
   try {
     countries = await loadCountries();
   } catch (error) {

@@ -198,6 +198,10 @@ p {
 
 /* ---- Home ---- */
 
+.home-subregions:empty {
+  display: none;
+}
+
 .home-title {
   font-size: 1.75rem;
 }

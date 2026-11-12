@@ -5,7 +5,8 @@
 
 import { createBackupSheet } from '../backup-sheet.js';
 import { CONTINENTS, countCards } from '../srs.js';
-import { loadMode, saveMode } from '../storage.js';
+import { takeStaleResume } from '../resume.js';
+import { QUIZ_MODES, loadMode, localToday, saveMode } from '../storage.js';
 import {
   ALL_LABEL,
   CONTINENT_LABELS,
@@ -25,7 +26,7 @@ const CONTINENT_CHOICES = Object.freeze([
 ]);
 
 const MODE_CHOICES = Object.freeze(
-  Object.entries(MODE_LABELS).map(([value, label]) => ({ value, label }))
+  QUIZ_MODES.map((value) => ({ value, label: MODE_LABELS[value] }))
 );
 
 // Module state lives for one page load: the filter survives a trip to
@@ -37,6 +38,11 @@ let selectedSubregion = null;
 let selectedMode = null;
 let controller = null;
 
+function resetFilter() {
+  selectedContinent = null;
+  selectedSubregion = null;
+}
+
 /**
  * Render the home screen.
  *
@@ -45,11 +51,46 @@ let controller = null;
  * @returns {void}
  */
 export function mount(container, context) {
+  if (!(container instanceof HTMLElement)) {
+    throw new TypeError('`container` must be an `HTMLElement`.');
+  }
+  if (typeof context !== 'object' || context === null || !Array.isArray(context.countries) ||
+    typeof context.navigate !== 'function') {
+    throw new TypeError('`context` must have a `countries` array and a `navigate` function.');
+  }
   controller = new AbortController();
   const { signal } = controller;
   const { countries, navigate } = context;
 
   selectedMode ??= loadMode();
+
+  // iOS resumes an installed app from the background without reloading. If
+  // the date changed or the user was away for `RESUME_RESET_MS` (js/resume.js
+  // records background time on every screen), treat the return like a fresh
+  // open: filter back to All. A stale resume during a round or test is
+  // applied here, when home is next shown, so the round is never interrupted.
+  if (takeStaleResume(localToday())) {
+    resetFilter();
+  }
+  // While home is showing, re-render at once. js/resume.js's listeners were
+  // added at app start, so they have already run when these do.
+  const reopenIfStale = () => {
+    if (takeStaleResume(localToday())) {
+      resetFilter();
+      // Through the router, so a failing mount gets its error state.
+      navigate('home');
+    }
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      reopenIfStale();
+    }
+  }, { signal });
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) {
+      reopenIfStale();
+    }
+  }, { signal });
 
   const countNumber = el('span', { class: 'country-count-number' });
   const countLabel = el('span', { class: 'country-count-label' });

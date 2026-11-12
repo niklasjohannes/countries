@@ -13,6 +13,12 @@ let controller = null;
  * @returns {void}
  */
 export function mount(container, context) {
+  if (!(container instanceof HTMLElement)) {
+    throw new TypeError('`container` must be an `HTMLElement`.');
+  }
+  if (typeof context !== 'object' || context === null || typeof context.navigate !== 'function') {
+    throw new TypeError('`context` must have a `navigate` function.');
+  }
   controller = new AbortController();
   const back = el('button', { type: 'button', class: 'button', 'data-action': 'back' }, ['Back']);
   back.addEventListener('click', () => context.navigate('home'), { signal: controller.signal });

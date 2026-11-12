@@ -20,6 +20,14 @@ import { el } from './ui.js';
 
 const BACKUP_MIME_TYPE = 'application/json';
 
+/**
+ * Largest file (bytes) read at all. `MAX_BACKUP_LENGTH` counts characters,
+ * and a character is at least one byte, so a file over this many bytes is
+ * over that limit too; this is the cheap, looser pre-check before
+ * `file.text()`. `parseBackup` applies the exact limit.
+ */
+export const MAX_BACKUP_FILE_BYTES = MAX_BACKUP_LENGTH;
+
 /** How long (ms) a download's `blob:` URL stays valid after the click. */
 export const DOWNLOAD_URL_LIFETIME_MS = 60_000;
 
@@ -84,6 +92,9 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
     throw new TypeError('`signal` must be an `AbortSignal`.');
   }
   const known = new Set(knownCodes);
+  // One export at a time: a second tap while the share sheet is opening
+  // would reject with `InvalidStateError`.
+  let isExporting = false;
 
   const title = el('h2', { id: 'backup-title', class: 'sheet-title' });
   const text = el('p', { id: 'backup-text', class: 'sheet-text' });
@@ -108,6 +119,14 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
     node.addEventListener('click', onClick, { signal });
     return node;
   };
+  // The Export button is rebuilt on every `showMain`, so look it up rather
+  // than keep a reference that may be detached by the time an export ends.
+  const setExportDisabled = (isDisabled) => {
+    const exportButton = actions.querySelector('[data-action="export"]');
+    if (exportButton !== null) {
+      exportButton.disabled = isDisabled;
+    }
+  };
   const setStatus = (message) => {
     status.textContent = message;
     status.hidden = message === '';
@@ -119,6 +138,8 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
     text.textContent = body;
     setStatus(message);
     actions.replaceChildren(...buttons);
+    // An export may still be running from before the sheet was reopened.
+    setExportDisabled(isExporting);
     if (dialog.open) {
       buttons[0].focus({ preventScroll: true });
     }
@@ -171,16 +192,12 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
     });
   };
 
-  // One export at a time: a second tap while the share sheet is opening
-  // would reject with `InvalidStateError`.
-  let isExporting = false;
-  async function exportBackup(event) {
+  async function exportBackup() {
     if (isExporting) {
       return;
     }
     isExporting = true;
-    const exportButton = event.currentTarget;
-    exportButton.disabled = true;
+    setExportDisabled(true);
     try {
       const today = localToday();
       const states = loadStates(today);
@@ -201,9 +218,12 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
           setStatus(SHARE_ERROR);
         }
       }
+    } catch {
+      // Building or saving the file failed (e.g. blocked storage or `File`).
+      setStatus(SHARE_ERROR);
     } finally {
       isExporting = false;
-      exportButton.disabled = false;
+      setExportDisabled(false);
     }
   }
 
@@ -214,7 +234,7 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
     if (file === undefined) {
       return;
     }
-    if (file.size > MAX_BACKUP_LENGTH) {
+    if (file.size > MAX_BACKUP_FILE_BYTES) {
       setStatus(BACKUP_ERRORS.tooLarge);
       return;
     }

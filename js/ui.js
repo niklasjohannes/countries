@@ -20,6 +20,32 @@ export const CONTINENT_LABELS = Object.freeze({
   oceania: 'Oceania'
 });
 
+/** Human labels for `SUBREGIONS`, as the UN M49 names them. */
+export const SUBREGION_LABELS = Object.freeze({
+  'northern-africa': 'Northern Africa',
+  'western-africa': 'Western Africa',
+  'middle-africa': 'Middle Africa',
+  'eastern-africa': 'Eastern Africa',
+  'southern-africa': 'Southern Africa',
+  'northern-america': 'Northern America',
+  'central-america': 'Central America',
+  caribbean: 'Caribbean',
+  'south-america': 'South America',
+  'central-asia': 'Central Asia',
+  'eastern-asia': 'Eastern Asia',
+  'south-eastern-asia': 'South-eastern Asia',
+  'southern-asia': 'Southern Asia',
+  'western-asia': 'Western Asia',
+  'northern-europe': 'Northern Europe',
+  'western-europe': 'Western Europe',
+  'eastern-europe': 'Eastern Europe',
+  'southern-europe': 'Southern Europe',
+  'australia-and-new-zealand': 'Australia and New Zealand',
+  melanesia: 'Melanesia',
+  micronesia: 'Micronesia',
+  polynesia: 'Polynesia'
+});
+
 /** Human labels for the quiz modes (`QUIZ_MODES` in `js/storage.js`). */
 export const MODE_LABELS = Object.freeze({
   mc: 'Multiple choice',
@@ -36,7 +62,6 @@ const ALLOWED_TAGS = new Set([
 const FORBIDDEN_ATTRIBUTES = new Set(['style', 'srcdoc', 'srcset']);
 const URL_ATTRIBUTES = new Set(['href', 'src', 'action', 'formaction']);
 const CHOICE_GROUP_VARIANTS = Object.freeze(['chips', 'segmented']);
-const LOWERCASE_WORDS = new Set(['and']);
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -131,10 +156,7 @@ export function formatSubregion(subregion) {
   if (typeof subregion !== 'string' || !Object.hasOwn(SUBREGIONS, subregion)) {
     throw new RangeError('`subregion` must be a key of `SUBREGIONS`.');
   }
-  return subregion
-    .split('-')
-    .map((word, i) => (i > 0 && LOWERCASE_WORDS.has(word) ? word : word[0].toUpperCase() + word.slice(1)))
-    .join(' ');
+  return SUBREGION_LABELS[subregion];
 }
 
 /**
