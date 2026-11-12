@@ -44,7 +44,7 @@ import {
 } from '../practice-round.js';
 import { guardQuestionArea, renderQuestion, renderTapPrompt } from '../question.js';
 import { ROUND_SIZE, pickRound } from '../srs.js';
-import { loadStates, localToday } from '../storage.js';
+import { QUIZ_MODES, loadStates, localToday } from '../storage.js';
 import { el } from '../ui.js';
 
 const META_URL = './data/map-meta.json';
@@ -72,10 +72,28 @@ export function mount(container, context) {
   if (!(container instanceof HTMLElement)) {
     throw new TypeError('`container` must be an `HTMLElement`.');
   }
+  if (typeof context !== 'object' || context === null || typeof context.navigate !== 'function') {
+    throw new TypeError('`context` must have a `navigate` function.');
+  }
+  const { countries, navigate, params } = context;
+  if (!Array.isArray(countries)) {
+    throw new TypeError('`context.countries` must be an array.');
+  }
+  if (typeof params !== 'object' || params === null) {
+    throw new TypeError('`context.params` must be an object.');
+  }
+  const { filter, mode } = params;
+  const isScopeField = (value) => value === null || value === undefined || typeof value === 'string';
+  if (typeof filter !== 'object' || filter === null || !isScopeField(filter.continent) || !isScopeField(filter.subregion)) {
+    throw new TypeError('`params.filter` must be an object with `continent` and `subregion` as a string or `null`.');
+  }
+  if (!QUIZ_MODES.includes(mode)) {
+    throw new RangeError(`\`params.mode\` must be one of ${QUIZ_MODES.join(', ')}.`);
+  }
   controller = new AbortController();
   const { signal } = controller;
-  const { countries, navigate, params } = context;
-  const { filter, mode } = params;
+  // Built once: the card lookups below run for every question.
+  const byCode = new Map(countries.map((country) => [country.code, country]));
   const names = Object.fromEntries(countries.map((country) => [country.code, country.name]));
 
   // At most one auto-advance is pending at a time.
@@ -104,6 +122,10 @@ export function mount(container, context) {
   let question = null;
   let isAnswered = false;
   let persistedCodes = new Set();
+  // The stored card states: loaded when a round starts, then kept from each
+  // save (`persistAnswer` loads fresh before it writes), so a question does
+  // not parse storage again.
+  let states = {};
 
   // Swallow clicks on the question just after it appears (and taps on the
   // map, via `isGuarded`), and a held Enter on Next repeating onto its first
@@ -169,7 +191,7 @@ export function mount(container, context) {
     const score = getScore(round);
     const keepGoingButton = el('button', { type: 'button', class: 'button button-primary', 'data-action': 'keep-going' }, ['Keep going']);
     const doneButton = el('button', { type: 'button', class: 'button', 'data-action': 'done' }, ['Done']);
-    keepGoingButton.addEventListener('click', startRound, { signal });
+    keepGoingButton.addEventListener('click', () => startRound(), { signal });
     doneButton.addEventListener('click', () => navigate('home'), { signal });
     container.replaceChildren(
       el('h1', { class: 'practice-summary-title' }, ['Round complete']),
@@ -187,8 +209,7 @@ export function mount(container, context) {
     }
     closeSheet();
     const code = getCurrentCode(round);
-    const today = localToday();
-    const state = loadStates(today)[code] ?? null;
+    const state = states[code] ?? null;
     plan = planCard({ code, state, countries, meta, mode, rng: Math.random });
     const { position, total } = getProgress(round);
     progress.textContent = isReask(round) ? `${position} / ${total} · again` : `${position} / ${total}`;
@@ -197,7 +218,7 @@ export function mount(container, context) {
     nextButton.hidden = true;
     isAnswered = false;
 
-    const country = countries.find((item) => item.code === code);
+    const country = byCode.get(code);
     const isTap = plan.direction === DIRECTION_NAME_TO_TAP;
     mapView.render({
       geometry: geometries.get(country.continent),
@@ -237,91 +258,114 @@ export function mount(container, context) {
       return;
     }
     isAnswered = true;
-    const result = answerCurrent(round, correct);
-    round = result.round;
-    if (result.isFirstAnswer) {
-      persistedCodes = persistAnswer({
-        code: result.code,
-        correct,
-        today: localToday(),
-        persistedCodes
-      }).persistedCodes;
-    }
-    const outcome = getFeedbackPlan(correct);
-    question.reveal();
-    // Labels only on a miss (`showLabels`); the map view decides from
-    // `correct`, and gets the names only now.
-    mapView.reveal({ target: plan.code, picked, correct, names });
-    feedback.textContent = correct ? 'Correct' : 'Not quite';
-    feedback.classList.add(correct ? 'is-hit' : 'is-miss');
-    if (outcome.advance === 'auto') {
-      advanceTimer = setTimeout(() => {
-        advanceTimer = null;
-        showQuestion();
-      }, outcome.advanceMs);
-    } else {
-      nextButton.hidden = false;
-      // Focus Next. In typing mode that also closes the iOS keyboard, so the
-      // revealed name and Next are in view.
-      nextButton.focus({ preventScroll: true });
-      if (document.activeElement instanceof HTMLInputElement) {
-        document.activeElement.blur();
+    try {
+      const result = answerCurrent(round, correct);
+      round = result.round;
+      if (result.isFirstAnswer) {
+        const saved = persistAnswer({
+          code: result.code,
+          correct,
+          today: localToday(),
+          persistedCodes
+        });
+        persistedCodes = saved.persistedCodes;
+        states = saved.states;
       }
+      const outcome = getFeedbackPlan(correct);
+      question.reveal();
+      // Labels only on a miss: the map view decides from `correct`, and gets
+      // the names only now.
+      mapView.reveal({ target: plan.code, picked, correct, names });
+      feedback.textContent = correct ? 'Correct' : 'Not quite';
+      feedback.classList.add(correct ? 'is-hit' : 'is-miss');
+      if (outcome.advance === 'auto') {
+        advanceTimer = setTimeout(() => {
+          advanceTimer = null;
+          advance();
+        }, outcome.advanceMs);
+      } else {
+        nextButton.hidden = false;
+        // Focus Next. Moving focus off the typing input also closes the iOS
+        // keyboard, so the revealed name and Next are in view.
+        nextButton.focus({ preventScroll: true });
+      }
+    } catch (error) {
+      handleRoundError(error);
     }
   }
 
-  nextButton.addEventListener('click', showQuestion, { signal });
-
-  async function startRound() {
-    clearAdvance();
-    const today = localToday();
-    const codes = pickRound({
-      states: loadStates(today),
-      countries,
-      today,
-      filter,
-      rng: Math.random,
-      n: ROUND_SIZE
-    });
-    round = createRound(codes);
-    if (isRoundComplete(round)) {
-      // Only possible if the filter has no entries at all.
-      const doneButton = el('button', { type: 'button', class: 'button' }, ['Done']);
-      doneButton.addEventListener('click', () => navigate('home'), { signal });
-      container.replaceChildren(
-        el('p', { class: 'status' }, ['No countries to practise here.']),
-        el('div', { class: 'view-actions' }, [doneButton])
-      );
-      return;
-    }
-    container.replaceChildren(el('p', { class: 'status' }, ['Loading…']));
+  // Next question or the summary; anything it throws (a bad plan, a render
+  // error) goes to the error screen instead of freezing the view.
+  function advance() {
     try {
-      meta ??= await fetchJson(META_URL);
-      const continents = new Set(codes.map((code) => countries.find((item) => item.code === code).continent));
-      await Promise.all([...continents].filter((continent) => !geometries.has(continent)).map(async (continent) => {
-        geometries.set(continent, await fetchJson(geometryUrl(continent)));
-      }));
+      showQuestion();
     } catch (error) {
-      if (!signal.aborted) {
-        throw error;
-      }
+      handleRoundError(error);
     }
+  }
+
+  nextButton.addEventListener('click', advance, { signal });
+
+  // Replaces the view with a message and a way out. Used for every failure
+  // in a round: loading, planning, rendering and answering.
+  function handleRoundError(error) {
+    console.error(error);
     if (signal.aborted) {
       return;
     }
-    container.replaceChildren(header, feedback, mapBox, questionArea, actions);
-    showQuestion();
+    clearAdvance();
+    closeSheet();
+    const back = el('button', { type: 'button', class: 'button' }, ['Back']);
+    back.addEventListener('click', () => navigate('home'), { signal });
+    container.replaceChildren(
+      el('p', { class: 'status' }, ['Something went wrong with this round. Go back and try again.']),
+      el('div', { class: 'view-actions' }, [back])
+    );
   }
 
-  startRound().catch((error) => {
-    console.error(error);
-    const retry = el('button', { type: 'button', class: 'button' }, ['Back']);
-    retry.addEventListener('click', () => navigate('home'), { signal });
-    container.replaceChildren(
-      el('p', { class: 'status' }, ['Could not load the map data. Check your connection and try again.']),
-      el('div', { class: 'view-actions' }, [retry])
-    );
-  });
+  // Starts (or restarts, for Keep going) a round. Never rejects: errors go
+  // to `handleRoundError`.
+  async function startRound() {
+    try {
+      clearAdvance();
+      const today = localToday();
+      states = loadStates(today);
+      const codes = pickRound({
+        states,
+        countries,
+        today,
+        filter,
+        rng: Math.random,
+        n: ROUND_SIZE
+      });
+      round = createRound(codes);
+      if (isRoundComplete(round)) {
+        // Only possible if the filter has no entries at all.
+        const doneButton = el('button', { type: 'button', class: 'button' }, ['Done']);
+        doneButton.addEventListener('click', () => navigate('home'), { signal });
+        container.replaceChildren(
+          el('p', { class: 'status' }, ['No countries to practise here.']),
+          el('div', { class: 'view-actions' }, [doneButton])
+        );
+        return;
+      }
+      container.replaceChildren(el('p', { class: 'status' }, ['Loading…']));
+      meta ??= await fetchJson(META_URL);
+      const continents = new Set(codes.map((code) => byCode.get(code).continent));
+      await Promise.all([...continents].filter((continent) => !geometries.has(continent)).map(async (continent) => {
+        geometries.set(continent, await fetchJson(geometryUrl(continent)));
+      }));
+      if (signal.aborted) {
+        return;
+      }
+      container.replaceChildren(header, feedback, mapBox, questionArea, actions);
+      showQuestion();
+    } catch (error) {
+      handleRoundError(error);
+    }
+  }
+
+  startRound();
 }
 
 /**

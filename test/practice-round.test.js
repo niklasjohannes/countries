@@ -193,28 +193,15 @@ describe('planCard', () => {
 
 describe('getFeedbackPlan', () => {
   it('advances a hit by itself, without labels', () => {
-    assert.deepEqual(getFeedbackPlan(true), {
-      advance: 'auto',
-      advanceMs: HIT_ADVANCE_MS,
-      showLabels: false,
-      requeue: false,
-    });
+    assert.deepEqual(getFeedbackPlan(true), { advance: 'auto', advanceMs: HIT_ADVANCE_MS });
   });
 
-  it('makes a miss wait for Next, with labels, and re-queues it', () => {
-    assert.deepEqual(getFeedbackPlan(false), {
-      advance: 'next',
-      advanceMs: null,
-      showLabels: true,
-      requeue: true,
-    });
+  it('makes a miss wait for Next', () => {
+    assert.deepEqual(getFeedbackPlan(false), { advance: 'next', advanceMs: null });
   });
 
-  it('agrees with the round: only a miss is re-queued', () => {
-    const miss = answerCurrent(createRound(['a1', 'a2']), false).round;
-    const hit = answerCurrent(createRound(['a1', 'a2']), true).round;
-    assert.equal(miss.queue.includes('a1'), getFeedbackPlan(false).requeue);
-    assert.equal(hit.queue.includes('a1'), getFeedbackPlan(true).requeue);
+  it('rejects a non-boolean', () => {
+    assert.throws(() => getFeedbackPlan('yes'), TypeError);
   });
 });
 
@@ -223,8 +210,9 @@ describe('getFeedbackPlan', () => {
 describe('persistAnswer', () => {
   it('writes a new card on its first answer', () => {
     const storage = createStorage();
-    const { changed } = persistAnswer({ code: 'md', correct: true, today: TODAY, storage });
+    const { changed, states } = persistAnswer({ code: 'md', correct: true, today: TODAY, storage });
     assert.equal(changed, true);
+    assert.deepEqual(states, loadStates(TODAY, storage));
     const saved = loadStates(TODAY, storage);
     assert.equal(saved.md.repetitions, 1);
     assert.equal(saved.md.intervalDays, 1);

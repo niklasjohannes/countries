@@ -8,6 +8,7 @@ import {
   DIRECTION_MAP_TO_NAME,
   DIRECTION_NAME_TO_TAP,
   MATURE_INTERVAL_DAYS,
+  isMature,
   TAP_CARD_SHARE,
   pickDirection,
   pickFrame,
@@ -135,5 +136,18 @@ describe('pickFrame', () => {
     for (const direction of [undefined, 'tap', true]) {
       assert.throws(() => pickFrame(null, SOUTH_AFRICA, direction), /`direction`/);
     }
+  });
+});
+
+describe('isMature', () => {
+  it('is false for an unseen card and flips at exactly `MATURE_INTERVAL_DAYS`', () => {
+    assert.equal(isMature(null), false);
+    assert.equal(isMature({ intervalDays: MATURE_INTERVAL_DAYS - 1 }), false);
+    assert.equal(isMature({ intervalDays: MATURE_INTERVAL_DAYS }), true);
+  });
+
+  it('rejects a malformed state', () => {
+    assert.throws(() => isMature({ intervalDays: -1 }), TypeError);
+    assert.throws(() => isMature('x'), TypeError);
   });
 });

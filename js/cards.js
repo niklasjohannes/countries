@@ -30,6 +30,26 @@ function isPlainObject(value) {
 // ---- Public API ----
 
 /**
+ * Whether a card is mature: its interval has reached `MATURE_INTERVAL_DAYS`.
+ * A card that has never been answered (`state` is `null`) is young.
+ *
+ * @param {{ intervalDays: number } | null} state The card's SRS state, or `null` if unseen.
+ * @returns {boolean} `true` from `intervalDays >= MATURE_INTERVAL_DAYS` on.
+ */
+export function isMature(state) {
+  if (state === null) {
+    return false;
+  }
+  if (!isPlainObject(state)) {
+    throw new TypeError('`state` must be a card state object or `null`.');
+  }
+  if (!Number.isInteger(state.intervalDays) || state.intervalDays < 0) {
+    throw new TypeError('`state.intervalDays` must be a non-negative integer.');
+  }
+  return state.intervalDays >= MATURE_INTERVAL_DAYS;
+}
+
+/**
  * Picks the direction of a card. Entries that are not tappable (`small`
  * entries) are always map → name and do not consume `rng`; a tappable entry
  * draws once from `rng` and is name → tap with probability `TAP_CARD_SHARE`.
@@ -107,6 +127,5 @@ export function pickFrame(state, entry, direction) {
   if (direction === DIRECTION_NAME_TO_TAP) {
     return entry.subregion;
   }
-  const isMature = state !== null && state.intervalDays >= MATURE_INTERVAL_DAYS;
-  return isMature ? entry.continent : entry.subregion;
+  return isMature(state) ? entry.continent : entry.subregion;
 }

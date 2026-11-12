@@ -376,8 +376,9 @@ export function renderQuestion(container, options) {
  * @param {string} options.name The country's display name.
  * @param {AbortSignal} [options.signal] Makes the handle inert when aborted.
  * @returns {{ reveal: () => void, focus: () => void }} Handle (frozen).
- *   `reveal()` marks the prompt `.is-answered`; `focus()` does nothing (the
- *   answer is a tap on the map).
+ *   `reveal()` marks the prompt `.is-answered`; `focus()` focuses the prompt
+ *   (`tabindex` -1), so focus does not fall to `<body>` when the previous
+ *   question's controls are replaced (the answer itself is a tap on the map).
  */
 export function renderTapPrompt(container, options) {
   if (!(container instanceof HTMLElement)) {
@@ -394,7 +395,7 @@ export function renderTapPrompt(container, options) {
 
   const controller = takeOver(container, signal);
   previousByContainer.set(container, { controller, typing: null });
-  const root = el('p', { class: 'question question-tap-prompt', 'data-mode': 'tap' }, [
+  const root = el('p', { class: 'question question-tap-prompt', 'data-mode': 'tap', tabindex: -1 }, [
     'Tap ',
     el('strong', { class: 'question-tap-name' }, [name])
   ]);
@@ -405,6 +406,10 @@ export function renderTapPrompt(container, options) {
         root.classList.add('is-answered');
       }
     },
-    focus: () => {}
+    focus: () => {
+      if (!controller.signal.aborted) {
+        root.focus({ preventScroll: true });
+      }
+    }
   });
 }

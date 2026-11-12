@@ -49,7 +49,7 @@
 import {
   DIRECTION_MAP_TO_NAME,
   DIRECTION_NAME_TO_TAP,
-  MATURE_INTERVAL_DAYS,
+  isMature,
   pickDirection,
   pickFrame
 } from './cards.js';
@@ -247,8 +247,10 @@ export function recordAnswer({ states, code, correct, today, persistedCodes = ne
  * @param {string} options.today Local date, `YYYY-MM-DD`.
  * @param {ReadonlySet<string>} [options.persistedCodes=new Set()] See `recordAnswer`.
  * @param {Storage | null} [options.storage] Storage to use; defaults to `localStorage`.
- * @returns {{ persistedCodes: ReadonlySet<string>, changed: boolean }} The
- *   updated visit set and whether the stored state changed.
+ * @returns {{ states: Object<string, object>, persistedCodes: ReadonlySet<string>, changed: boolean }}
+ *   The states as they are stored now (so a caller can keep them instead of
+ *   parsing storage again), the updated visit set, and whether the stored
+ *   state changed.
  */
 export function persistAnswer({ code, correct, today, persistedCodes = new Set(), storage } = {}) {
   const recorded = recordAnswer({
@@ -261,7 +263,7 @@ export function persistAnswer({ code, correct, today, persistedCodes = new Set()
   if (recorded.changed) {
     saveStates(recorded.states, storage);
   }
-  return { persistedCodes: recorded.persistedCodes, changed: recorded.changed };
+  return { states: recorded.states, persistedCodes: recorded.persistedCodes, changed: recorded.changed };
 }
 
 // ---- Card plan ----
@@ -314,8 +316,7 @@ export function planCard({ code, state, countries, meta, mode, rng } = {}) {
   if (!Object.hasOwn(meta.frames, frameKey)) {
     throw new RangeError(`\`meta.frames\` has no frame \`${frameKey}\`.`);
   }
-  const isContinent = direction === DIRECTION_MAP_TO_NAME &&
-    state !== null && state.intervalDays >= MATURE_INTERVAL_DAYS;
+  const isContinent = direction === DIRECTION_MAP_TO_NAME && isMature(state);
   return Object.freeze({
     code,
     direction,
@@ -333,21 +334,22 @@ export function planCard({ code, state, countries, meta, mode, rng } = {}) {
 export const HIT_ADVANCE_MS = 700;
 
 /**
- * What an answer's feedback looks like (PLAN decision 12).
+ * How an answer advances (PLAN decision 12).
  *
- * - A hit advances by itself after `HIT_ADVANCE_MS` and shows no labels.
- * - A miss waits for a Next tap, shows the neighbour and target labels, and
- *   puts the card back in the queue.
+ * - A hit advances by itself after `HIT_ADVANCE_MS`.
+ * - A miss waits for a Next tap.
+ *
+ * Labels follow the same split (the map view shows them on a miss only), and
+ * re-queueing is `answerCurrent`'s job, not part of this plan.
  *
  * @param {boolean} correct Whether the answer was correct.
- * @returns {{ advance: 'auto' | 'next', advanceMs: number | null, showLabels: boolean, requeue: boolean }}
- *   Frozen description.
+ * @returns {{ advance: 'auto' | 'next', advanceMs: number | null }} Frozen description.
  */
 export function getFeedbackPlan(correct) {
   if (typeof correct !== 'boolean') {
     throw new TypeError('`correct` must be a boolean.');
   }
   return Object.freeze(correct
-    ? { advance: 'auto', advanceMs: HIT_ADVANCE_MS, showLabels: false, requeue: false }
-    : { advance: 'next', advanceMs: null, showLabels: true, requeue: true });
+    ? { advance: 'auto', advanceMs: HIT_ADVANCE_MS }
+    : { advance: 'next', advanceMs: null });
 }
