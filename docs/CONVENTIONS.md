@@ -12,7 +12,7 @@ Nothing personal reaches GitHub: not in a commit, a file, a commit message, an i
 - Git identity is the noreply address `34960897+niklasjohannes@users.noreply.github.com` and must never be changed per commit. Linked worktrees share it.
 - Commit trailers may name `noreply@anthropic.com` (`Co-Authored-By`). Do not add other email addresses.
 
-The scanner, hooks and CI job that enforce this are built in issue 2. Until then, check diffs by hand before committing.
+Enforcement: the scanner, hooks and CI privacy job (lands in issue 2; until then check the diff manually) enforce this.
 
 ## Modules and dependencies
 
