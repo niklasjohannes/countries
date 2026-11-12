@@ -6,6 +6,13 @@
       "runtimeExecutable": "/usr/bin/python3",
       "runtimeArgs": ["scripts/dev_server.py", "8005"],
       "port": 8005
+    },
+    {
+      "name": "countries-pages",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["scripts/dev_server.py", "8006", "--base", "/countries/"],
+      "port": 8006,
+      "url": "http://localhost:8006"
     }
   ]
 }
