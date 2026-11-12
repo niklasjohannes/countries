@@ -242,6 +242,19 @@ describe('hitTest', () => {
     assert.deepEqual(hitTest(point, reversed, FRAME, PHONE_PX), first);
   });
 
+  it('picks the smaller entry when a small square lies inside a large one, in either entry order', () => {
+    const square = (x0, y0, size) => [[[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size], [x0, y0]]];
+    const big = { rings: square(0, 0, 1_000), tappable: true };
+    const small = { rings: square(400, 400, 100), tappable: true };
+    const frame = [0, 0, 1_000, 1_000];
+    const inside = [450, 450]; // in both squares
+    const bigOnly = [100, 100];
+    for (const order of [{ big, small }, { small, big }]) {
+      assert.deepEqual(hitTest(inside, order, frame, PHONE_PX), { code: 'small' });
+      assert.deepEqual(hitTest(bigOnly, order, frame, PHONE_PX), { code: 'big' });
+    }
+  });
+
   it('validates its inputs', () => {
     const point = [0, 0];
     assert.throws(() => hitTest([0], entries, FRAME, PHONE_PX), /`point`/);
