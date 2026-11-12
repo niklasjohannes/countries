@@ -12,9 +12,10 @@
 //   --identity             the author/committer identity git would use right now
 //   --tag <sha>            an annotated tag object: tagger email and message
 // Modifier for --stdin:
-//   --commit-message       treat stdin as a commit message: stop at the
-//                          `git commit -v` scissors line and also flag CI-skip
+//   --commit-message       treat stdin as a commit message: also flag CI-skip
 //                          markers
+//   --cut-scissors         (with --commit-message) ignore everything from the
+//                          `git commit -v` scissors line; only for the hook
 //
 // Output is `location  category` only. The matched text is never printed, so the
 // scanner cannot leak what it finds. Exit codes: 0 clean, 1 findings, 2 error.
@@ -55,7 +56,7 @@ const ENCODED_AT_RE = /%40|&#0*64;|&#x0*40;|&commat;|\\u0040|\\x40/gi;
 // paths (`C:\\Users\\name`) are covered by the repeated separators.
 const HOME_END = '(?=[\\\\/\'"`\\s)\\]},;:]|$)';
 const HOME_PATH_RES = [
-  new RegExp(`(?<![A-Za-z0-9._#-])/(?:Users|home)/([A-Za-z0-9._-]+)${HOME_END}`, 'gi'),
+  new RegExp(`(?<![A-Za-z0-9._#-])\\\\?/(?:Users|home)\\\\?/([A-Za-z0-9._-]+)${HOME_END}`, 'gi'),
   new RegExp(`(?<![A-Za-z0-9])[A-Za-z]:[\\\\/]+Users[\\\\/]+([A-Za-z0-9._-]+)${HOME_END}`, 'gi'),
 ];
 
@@ -66,7 +67,7 @@ const CREDENTIAL_RES = [
   /\bsk-ant-[A-Za-z0-9_-]{20,}/,
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/,
   /\bmachine\s+\S+\s+login\s+\S+/, // .netrc entry
-  /^\s*password\s+\S+/i, // .netrc password line
+  /^\s*password\s+\S+\s*$/i, // .netrc password line
   /-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----/,
 ];
 
@@ -145,15 +146,25 @@ let exceptions = new Map();
  * `{ path, sha256, reason, categories }`. Throws on a malformed entry or an
  * entry whose path no longer exists. A missing file means no exceptions.
  *
+ * @param {string|null} source Where to read it from: null for the working tree,
+ *   '' for the index, or a revision. Commit scans use the scanned head, so a
+ *   working-tree edit cannot change what a commit is judged against.
  * @returns {void}
  */
-function loadExceptions() {
+function loadExceptions(source) {
   const top = git(['rev-parse', '--show-toplevel']).trim();
-  const file = join(top, EXCEPTIONS_FILE);
-  if (!existsSync(file)) return;
+  const readPath = (path) => (source === null
+    ? (existsSync(join(top, path)) ? readFileSync(join(top, path)) : null)
+    : gitBuffer(['show', `${source}:${path}`]));
+  const existsAt = (path) => (source === null
+    ? existsSync(join(top, path))
+    : gitBuffer(['cat-file', '-e', `${source}:${path}`]) !== null);
+  const raw = readPath(EXCEPTIONS_FILE);
+  exceptions = new Map();
+  if (raw === null) return;
   let entries;
   try {
-    entries = JSON.parse(readFileSync(file, 'utf8'));
+    entries = JSON.parse(raw.toString('utf8'));
   } catch {
     throw new Error(`${EXCEPTIONS_FILE} is not valid JSON`);
   }
@@ -177,7 +188,7 @@ function loadExceptions() {
       throw new Error(`${at}: \`categories\` must be a non-empty list of email / home-path`);
     }
     if (loaded.has(path)) throw new Error(`${at}: duplicate \`path\``);
-    if (!existsSync(join(top, path))) throw new Error(`${at}: \`path\` does not exist (stale entry)`);
+    if (!existsAt(path)) throw new Error(`${at}: \`path\` does not exist (stale entry)`);
     loaded.set(path, { sha256, categories: new Set(categories) });
   });
   exceptions = loaded;
@@ -331,8 +342,15 @@ function scanPath(report, file, prefix = '') {
  */
 function decodeContent(buffer) {
   if (!buffer.includes(0)) return buffer.toString('utf8');
+  if (buffer[0] === 0xff && buffer[1] === 0xfe) return buffer.subarray(2).toString('utf16le');
+  if (buffer[0] === 0xfe && buffer[1] === 0xff) {
+    const even = Buffer.from(buffer.subarray(2, 2 + ((buffer.length - 2) & ~1)));
+    return even.swap16().toString('utf16le');
+  }
+  // No BOM: scan NUL-stripped text (catches BOM-less UTF-16) and NUL-split text.
+  const split = buffer.toString('latin1').replace(/[^\x20-\x7e\n]+/g, '\n');
   const stripped = Buffer.from(buffer.filter((byte) => byte !== 0));
-  return stripped.toString('latin1').replace(/[^\x20-\x7e\n]+/g, '\n');
+  return `${stripped.toString('latin1').replace(/[^\x20-\x7e\n]+/g, '\n')}\n${split}`;
 }
 
 /**
@@ -396,6 +414,29 @@ function scanDiff(report, diff, names, prefix = '', readBlob = () => null) {
       newLine = Number(hunk[2]);
     }
   }
+  // A misaligned path list would attribute findings (and exceptions) to the wrong file.
+  if (fileIndex !== names.length) throw new Error('diff headers and file list disagree');
+}
+
+/**
+ * Paths touched by a diff, one per `diff --git` header, in diff order. A
+ * typechange (`T`) produces two headers, so its path is listed twice.
+ *
+ * @param {string[]} args A `git diff` / `git show` invocation without output options.
+ * @returns {string[]} Paths.
+ */
+function listDiffNames(args) {
+  const tokens = git([...args, '--raw', '-z', '--no-renames', '--no-abbrev']).split('\0');
+  const names = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!tokens[i].startsWith(':')) continue;
+    const status = tokens[i].split(' ')[4] ?? '';
+    const path = tokens[i + 1] ?? '';
+    names.push(path);
+    if (status.startsWith('T')) names.push(path);
+    i += 1;
+  }
+  return names;
 }
 
 // `--text` stops `binary`/`-diff` attributes from hiding content; the prefixes are
@@ -411,8 +452,9 @@ const DIFF_ARGS = [
  * @param {Report} report Findings sink.
  */
 function scanStaged(report) {
+  loadExceptions('');
   const args = ['diff', '--cached', '--diff-filter=ACMRT'];
-  const names = git([...args, '--name-only', '-z', '--no-renames']).split('\0').filter(Boolean);
+  const names = listDiffNames(args);
   scanDiff(report, git([...args, ...DIFF_ARGS]), names, '', (file) => gitBuffer(['show', `:${file}`]));
 }
 
@@ -420,6 +462,7 @@ function scanStaged(report) {
  * @param {Report} report Findings sink.
  */
 function scanTree(report) {
+  loadExceptions(null);
   const files = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard'])
     .split('\0')
     .filter(Boolean);
@@ -463,10 +506,8 @@ function scanCommits(report, shas) {
     scanText(report, message, '', `commit ${short} message`);
     if (CI_SKIP_RE.test(message)) report.add(`commit ${short} message`, null, 'ci-skip-marker');
 
-    const showArgs = ['show', '--format=', '--diff-merges=first-parent'];
-    const names = git([...showArgs, '--name-only', '-z', '--no-renames', sha])
-      .split('\0')
-      .filter(Boolean);
+    const showArgs = ['show', '--format=', '--diff-merges=first-parent', '--diff-filter=ACMRT'];
+    const names = listDiffNames([...showArgs, sha]);
     scanDiff(report, git([...showArgs, ...DIFF_ARGS, sha]), names, `${short} `, (file) =>
       gitBuffer(['show', `${sha}:${file}`]));
   }
@@ -493,6 +534,7 @@ function scanRange(report, range) {
     throw new Error('`--range` expects <a>..<b>');
   }
   const [from, to] = parts.map(assertSafeRev);
+  loadExceptions(to);
   const spec = ZERO_SHA_RE.test(from) ? [to] : [`${from}..${to}`];
   scanCommits(report, git(['rev-list', '--reverse', ...spec]).split('\n').filter(Boolean));
 }
@@ -503,6 +545,7 @@ function scanRange(report, range) {
  */
 function scanNewCommits(report, sha) {
   const tip = assertSafeRev(sha);
+  loadExceptions(tip);
   scanCommits(
     report,
     git(['rev-list', '--reverse', tip, '--not', '--remotes']).split('\n').filter(Boolean),
@@ -532,6 +575,7 @@ function scanTag(report, sha) {
     id = headers.find((h) => h.startsWith('object '))?.slice(7) ?? '';
     if (!id) return;
   }
+  throw new Error('tag chain is too deep');
 }
 
 /**
@@ -549,14 +593,16 @@ function scanIdentity(report) {
 
 /**
  * @param {Report} report Findings sink.
- * @param {boolean} asCommitMessage Stop at the scissors line and flag CI-skip markers.
+ * @param {boolean} asCommitMessage Flag CI-skip markers.
+ * @param {boolean} cutScissors Ignore everything from the `git commit -v` scissors line.
  */
-function scanStdin(report, asCommitMessage) {
+function scanStdin(report, asCommitMessage, cutScissors) {
   const text = readFileSync(0, 'utf8');
-  // `#` lines are scanned: `git commit -m` keeps them. Only the `git commit -v`
-  // scissors line and the diff below it are not part of the message.
+  // `#` lines are scanned: `git commit -m` keeps them. The scissors cut (for the
+  // `git commit -v` diff) is opt-in, because anything else, like a PR body, is
+  // author-controlled and must be read in full.
   let kept = text;
-  if (asCommitMessage) {
+  if (cutScissors) {
     const scissors = text.search(/^# -{24} >8 -{24}$/m);
     if (scissors !== -1) kept = text.slice(0, scissors);
   }
@@ -567,7 +613,7 @@ function scanStdin(report, asCommitMessage) {
 // ---- Entry point ----
 
 const USAGE = `usage: check-privacy.js --staged | --range <a>..<b> | --new-commits <sha> | --tree
-       | --tag <sha> | --identity | --stdin [--commit-message]`;
+       | --tag <sha> | --identity | --stdin [--commit-message [--cut-scissors]]`;
 
 /**
  * @param {string[]} argv Arguments after the script name.
@@ -579,10 +625,15 @@ function main(argv) {
   ];
   const used = argv.filter((a) => modes.includes(a));
   const asCommitMessage = argv.includes('--commit-message');
+  const cutScissors = argv.includes('--cut-scissors');
   const takesValue = ['--range', '--new-commits', '--tag'];
   const expected = used.length + used.filter((a) => takesValue.includes(a)).length
-    + (asCommitMessage ? 1 : 0);
-  if (used.length !== 1 || argv.length !== expected || (asCommitMessage && used[0] !== '--stdin')) {
+    + (asCommitMessage ? 1 : 0) + (cutScissors ? 1 : 0);
+  const needsStdin = asCommitMessage || cutScissors;
+  if (
+    used.length !== 1 || argv.length !== expected || (needsStdin && used[0] !== '--stdin')
+    || (cutScissors && !asCommitMessage)
+  ) {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
@@ -591,11 +642,10 @@ function main(argv) {
   const value = argv[argv.indexOf(mode) + 1];
   const report = new Report();
   try {
-    if (['--staged', '--tree', '--range', '--new-commits'].includes(mode)) loadExceptions();
     if (mode === '--staged') scanStaged(report);
     else if (mode === '--tree') scanTree(report);
     else if (mode === '--identity') scanIdentity(report);
-    else if (mode === '--stdin') scanStdin(report, asCommitMessage);
+    else if (mode === '--stdin') scanStdin(report, asCommitMessage, cutScissors);
     else if (mode === '--tag') scanTag(report, value);
     else if (mode === '--range') scanRange(report, value);
     else scanNewCommits(report, value);

@@ -158,7 +158,14 @@ describe('--stdin --commit-message', () => {
   it('stops at the `git commit -v` scissors line', () => {
     const scissors = `# ${'-'.repeat(24)} >8 ${'-'.repeat(24)}`;
     const text = `subject\n\n${scissors}\n+${BAD_EMAIL}\n`;
-    assert.equal(scan(['--stdin', '--commit-message'], { input: text }).status, 0);
+    assert.equal(scan(['--stdin', '--commit-message', '--cut-scissors'], { input: text }).status, 0);
+  });
+
+  it('reads everything when --cut-scissors is not given (PR bodies)', () => {
+    const scissors = `# ${'-'.repeat(24)} >8 ${'-'.repeat(24)}`;
+    const text = `title\n\n${scissors}\n${BAD_EMAIL}\n`;
+    assertFails(scan(['--stdin', '--commit-message'], { input: text }), 'email');
+    assert.equal(scan(['--stdin', '--cut-scissors'], { input: text }).status, 2);
   });
 
   it('flags CI-skip markers, but only for messages', () => {
@@ -643,5 +650,84 @@ describe('vendored-file exceptions', () => {
     const entry = { path: VENDOR, sha256: sha256('x\n'), reason: `contact ${BAD_EMAIL}`, categories: ['email'] };
     writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), JSON.stringify([entry]));
     assertFails(scan(['--tree'], { cwd: repo }), 'email');
+  });
+});
+
+describe('delta review fixes', () => {
+  const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+
+  it('keeps attribution correct after a typechange', () => {
+    const repo = makeRepo();
+    commitFile(repo, 'link', 'plain\n');
+    commitFile(repo, 'z.txt', 'old\n');
+    rmSync(join(repo, 'link'));
+    symlinkSync('target', join(repo, 'link'));
+    writeFileSync(join(repo, 'z.txt'), `${BAD_EMAIL}\n`);
+    git(repo, ['add', '-A']);
+    const result = scan(['--staged'], { cwd: repo });
+    assert.match(result.out, /^z\.txt:1 {2}email$/m);
+    assert.ok(!/^link/m.test(result.out));
+  });
+
+  it('reads exceptions from the scanned head commit, not the working tree', () => {
+    const repo = makeRepo();
+    const base = commitFile(repo, 'a.txt', 'one\n');
+    const content = `credits ${BAD_EMAIL}\n`;
+    mkdirSync(join(repo, 'scripts'));
+    writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), '[]');
+    commitFile(repo, 'vendor.txt', content);
+    // Working tree gains an entry the commit does not have.
+    const entry = { path: 'vendor.txt', sha256: sha256(content), reason: 'r', categories: ['email'] };
+    writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), JSON.stringify([entry]));
+    assertFails(scan(['--range', `${base}..HEAD`], { cwd: repo }), 'email');
+    // Commit the entry, then empty it in the working tree: the head still wins.
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'exception']);
+    writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), '[]');
+    const head = git(repo, ['rev-parse', 'HEAD']);
+    // The commit adding vendor.txt has a blob hash match, so only the head entry matters.
+    assert.equal(scan(['--range', `${head}..${head}`], { cwd: repo }).status, 0);
+    assertFails(scan(['--tree'], { cwd: repo }), 'email');
+  });
+
+  it('errors when a tag chain is too deep', () => {
+    const repo = makeRepo();
+    commitFile(repo, 'a.txt', 'one\n');
+    git(repo, ['tag', '-a', 't0', '-m', 'x']);
+    for (let i = 1; i <= 11; i += 1) git(repo, ['tag', '-a', `t${i}`, '-m', 'x', `t${i - 1}`]);
+    assert.equal(scan(['--tag', git(repo, ['rev-parse', 't11'])], { cwd: repo }).status, 2);
+    assert.equal(scan(['--tag', git(repo, ['rev-parse', 't3'])], { cwd: repo }).status, 0);
+  });
+
+  it('does not flag prose that starts with the word password', () => {
+    const text = 'Password managers are recommended\npassword reset flows are out of scope\n';
+    assert.equal(scan(['--stdin'], { input: text }).status, 0);
+  });
+
+  it('flags JSON-escaped Unix home paths', () => {
+    assertFails(scan(['--stdin'], { input: `"\\/Users\\/${FAKE_NAME}\\/x"` }), 'home-path');
+    assertFails(scan(['--stdin'], { input: `"\\/home\\/${FAKE_NAME}"` }), 'home-path');
+  });
+
+  it('does not block a commit that deletes a badly named file', () => {
+    const repo = makeRepo();
+    commitFile(repo, 'a.txt', 'one\n');
+    const bad = commitFile(repo, `${BAD_EMAIL}.txt`, 'x\n');
+    git(repo, ['rm', '-q', `${BAD_EMAIL}.txt`]);
+    git(repo, ['commit', '-q', '-m', 'remove']);
+    assert.equal(scan(['--range', `${bad}..HEAD`], { cwd: repo }).status, 0);
+  });
+
+  it('decodes BOM-marked UTF-16 in both byte orders', () => {
+    const repo = makeRepo();
+    const line = `ü ${BAD_EMAIL}\n`;
+    writeFileSync(join(repo, 'le.txt'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(line, 'utf16le')]));
+    writeFileSync(
+      join(repo, 'be.txt'),
+      Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(line, 'utf16le').swap16()]),
+    );
+    const out = scan(['--tree'], { cwd: repo }).out;
+    assert.match(out, /^le\.txt:1 {2}email$/m);
+    assert.match(out, /^be\.txt:1 {2}email$/m);
   });
 });
