@@ -8,6 +8,7 @@ import {
   renderCountries,
   serialiseCountries
 } from '../scripts/build-countries.js';
+import { CONTINENTS, SUBREGIONS as SUBREGIONS_BY_SRS } from '../js/srs.js';
 import { M49_SUBREGIONS, SOURCE, SUBREGIONS } from '../scripts/country-overrides.js';
 
 const FILE_URL = new URL('../data/countries.json', import.meta.url);
@@ -272,5 +273,20 @@ describe('generator validation', () => {
     assert.throws(() => invertSubregions(null, {}), TypeError);
     assert.throws(() => invertSubregions({}, null), TypeError);
     assert.throws(() => serialiseCountries({}), TypeError);
+  });
+});
+
+describe('countries.json agrees with js/srs.js', () => {
+  it('has `meta.continents` equal to `CONTINENTS`', () => {
+    assert.deepEqual(data.meta.continents, [...CONTINENTS]);
+  });
+
+  it('has `meta.subregions` equal to `SUBREGIONS`', () => {
+    assert.deepEqual(data.meta.subregions, { ...SUBREGIONS_BY_SRS });
+  });
+
+  it('gives every entry a boolean `quizzed`', () => {
+    const bad = data.countries.filter((country) => typeof country.quizzed !== 'boolean');
+    assert.deepEqual(bad.map((country) => country.code), []);
   });
 });

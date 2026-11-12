@@ -1,0 +1,257 @@
+/*
+ * Base styles: tokens, reset, layout, shared controls and the home screen.
+ * Deliberately minimal and functional: the full visual design lands in
+ * issue 11. Mobile-first, written for a 320-430 px wide iPhone.
+ *
+ * View-specific rules live in their own files, scoped under `.view-<name>`.
+ */
+
+:root {
+  color-scheme: light;
+  --color-bg: #ffffff;
+  --color-surface: #f4f4f4;
+  --color-border: #d6d6d6;
+  --color-border-strong: #8a8a8a;
+  --color-text: #111111;
+  --color-text-muted: #666666;
+  --color-inverse: #ffffff;
+  --color-accent: #4f7282;
+  --color-backdrop: rgb(17 17 17 / 0.4);
+  --font-sans: "Courier New", Courier, ui-monospace, monospace;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --tap-min: 3rem;
+  --content-max: 32rem;
+  --gutter: 1.25rem;
+  --focus-ring: 3px solid var(--color-accent);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--color-bg);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+.app {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--gutter);
+  padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom));
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.view:focus {
+  outline: none;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+.status {
+  color: var(--color-text-muted);
+}
+
+/* ---- Buttons ---- */
+
+.button,
+.button-quiet {
+  font: inherit;
+  cursor: pointer;
+  min-height: var(--tap-min);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.button {
+  padding: 0 var(--space-6);
+  border: 2px solid var(--color-text);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-weight: 700;
+}
+
+.button-primary {
+  background: var(--color-text);
+  color: var(--color-inverse);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button-quiet {
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+  padding: 0 var(--space-3);
+}
+
+.button:focus-visible,
+.button-quiet:focus-visible,
+.choice-input:focus-visible + .choice-label {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.view-actions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.view-actions > .button {
+  flex: 1;
+}
+
+/* ---- Choice groups (chips, segmented) ---- */
+
+.choice-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.choice-group-legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.choice-group-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.choice {
+  position: relative;
+}
+
+.choice-input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.choice-label {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 2px solid var(--color-border-strong);
+  background: var(--color-bg);
+}
+
+.choice-input:checked + .choice-label {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-inverse);
+}
+
+.choice-group-segmented .choice-group-options {
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.choice-group-segmented .choice {
+  flex: 1;
+}
+
+.choice-group-segmented .choice-label {
+  justify-content: center;
+}
+
+/* ---- Home ---- */
+
+.home-subregions:empty {
+  display: none;
+}
+
+.home-title {
+  font-size: 1.75rem;
+}
+
+.country-count {
+  font-size: 1.125rem;
+}
+
+.country-count-number {
+  font-weight: 700;
+  font-size: 1.75rem;
+}
+
+.home-footer {
+  display: flex;
+  justify-content: center;
+}
+
+/* ---- Sheets (backup dialog) ---- */
+
+.sheet {
+  width: calc(100% - 2 * var(--gutter));
+  max-width: var(--content-max);
+  padding: 0;
+  border: 2px solid var(--color-text);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.sheet::backdrop {
+  background: var(--color-backdrop);
+}
+
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.sheet-title {
+  font-size: 1.25rem;
+}
+
+.sheet-status {
+  color: var(--color-text-muted);
+}
+
+.sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
