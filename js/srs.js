@@ -25,6 +25,8 @@
 
 // ---- Tunables ----
 
+import { isPlainObject } from './validate.js';
+
 /** Questions per practice round. */
 export const ROUND_SIZE = 10;
 
@@ -177,10 +179,6 @@ function diffDays(later, earlier) {
 }
 
 // ---- Validation helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function isNonNegativeInteger(value) {
   return Number.isInteger(value) && value >= 0;

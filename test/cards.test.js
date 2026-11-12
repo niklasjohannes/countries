@@ -14,23 +14,12 @@ import {
   pickFrame,
 } from '../js/cards.js';
 import { createCardState } from '../js/srs.js';
+import { createRng } from '../test-support/rng.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const meta = JSON.parse(readFileSync(join(FIXTURES, 'map-meta-southern-africa.json'), 'utf8'));
 
 const SOUTH_AFRICA = { code: 'za', continent: 'africa', subregion: 'southern-africa' };
-
-// Small seeded PRNG (mulberry32) so draws are reproducible.
-function createRng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
 
 function withInterval(intervalDays) {
   return { ...createCardState('za'), intervalDays };

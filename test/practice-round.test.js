@@ -27,6 +27,7 @@ import {
 } from '../js/practice-round.js';
 import { REQUEUE_GAP, ROUND_SIZE, createCardState, pickRound } from '../js/srs.js';
 import { loadStates, SRS_STORAGE_KEY } from '../js/storage.js';
+import { createRng } from '../test-support/rng.js';
 
 // ---- Fixtures ----
 
@@ -35,18 +36,6 @@ const read = (...parts) => JSON.parse(readFileSync(join(ROOT, ...parts), 'utf8')
 const countries = read('data', 'countries.json').countries;
 const meta = read('data', 'map-meta.json');
 const TODAY = '2026-11-12';
-
-// Small seeded PRNG (mulberry32) so draws are reproducible.
-function createRng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-  };
-}
 
 // In-memory `Storage`, so the SRS writes can be read back.
 function createStorage() {

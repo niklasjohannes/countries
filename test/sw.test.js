@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -161,11 +161,11 @@ describe('scripts/build-sw.js --check', () => {
 // of it inside a throwaway git repo with a minimal app.
 describe('scripts/build-sw.js --check in a scratch repo', () => {
   function scratchRepo() {
-    const dir = mkdtempSync(join(realpathSync(tmpdir()), 'build-sw-'));
+    const dir = mkdtempSync(join(tmpdir(), 'build-sw-'));
     const git = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
     mkdirSync(join(dir, 'scripts'));
     for (const sub of ['css', 'data', 'fonts', 'icons', 'img', 'js']) mkdirSync(join(dir, sub));
-    copyFileSync(join(REPO_ROOT, 'scripts', 'build-sw.js'), join(dir, 'scripts', 'build-sw.js'));
+    for (const script of ['build-sw.js', 'entry-point.js']) copyFileSync(join(REPO_ROOT, 'scripts', script), join(dir, 'scripts', script));
     writeFileSync(join(dir, 'index.html'), '<!doctype html>');
     writeFileSync(join(dir, 'manifest.webmanifest'), '{}');
     for (const sub of ['css', 'data', 'fonts', 'icons', 'img']) writeFileSync(join(dir, sub, 'keep.txt'), sub);

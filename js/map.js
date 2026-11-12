@@ -17,6 +17,8 @@
 
 // ---- Tunables ----
 
+import { isPlainObject } from './validate.js';
+
 /** Tap tolerance radius in CSS px (about 7 mm on a phone). */
 export const TAP_TOLERANCE_PX = 24;
 
@@ -39,10 +41,6 @@ export const INSET_PADDING_SHARE = 0.5;
 export const MARKER_MIN_RADIUS_PX = 6;
 
 // ---- Validation helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 // Rings already validated by `hitTest`, so repeated taps on the same,
 // unchanged geometry skip the per-point checks. Holds no strong references.

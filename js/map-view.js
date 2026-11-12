@@ -36,6 +36,7 @@
 // the document, as a fallback for when `ResizeObserver` has not fired yet.
 
 import { MARKER_MIN_RADIUS_PX, computeInset, getPxPerUnit, hitTest, largestRingBbox, ringsToPathData } from './map.js';
+import { isPlainObject, assertFrame } from './validate.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -65,17 +66,6 @@ export const SHADE_MARKER_CLUSTER_RADII = 1.5;
 export const REGION_LABEL = 'Map question';
 
 // ---- Validation helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function assertFrame(frame) {
-  const isShape = Array.isArray(frame) && frame.length === 4 && frame.every(Number.isFinite);
-  if (!isShape || !(frame[2] > frame[0]) || !(frame[3] > frame[1])) {
-    throw new TypeError('`frame` must be an `[x0, y0, x1, y1]` array of finite numbers with `x1 > x0` and `y1 > y0`.');
-  }
-}
 
 function assertFrameLevel(frameLevel) {
   if (frameLevel !== FRAME_LEVEL_SUBREGION && frameLevel !== FRAME_LEVEL_CONTINENT) {

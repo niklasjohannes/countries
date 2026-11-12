@@ -12,10 +12,7 @@
 //            same length.
 
 import { CONTINENTS, SUBREGIONS } from './srs.js';
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { isPlainObject } from './validate.js';
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value !== '';

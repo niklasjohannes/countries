@@ -13,6 +13,7 @@
 // from `localStorage`, and only entries for the dataset's codes are kept.
 
 import { sanitizeStates } from './srs.js';
+import { isPlainObject } from './validate.js';
 
 /** `app` field of every backup. */
 export const BACKUP_APP = 'countries';
@@ -36,10 +37,6 @@ export const BACKUP_ERRORS = Object.freeze({
 });
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * Serialize card states as a backup file.

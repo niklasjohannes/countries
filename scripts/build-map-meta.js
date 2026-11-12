@@ -36,11 +36,12 @@
 //   is small in whichever frame is on screen. `small` and `tappable` do not
 //   change.
 
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { buildGeometryFull } from './build-geometry.js';
+import { isEntryPoint } from './entry-point.js';
 import { FRAME_OVERRIDES } from './frame-overrides.js';
 import { FRAME_PADDING, SMALL_VIEWPORT_PX, SMALL_LIMIT_PX, computeFrame, computeFrames, isSmall, largestRingBbox, projectLonLatBox } from './frames.js';
 
@@ -95,20 +96,6 @@ export function buildMapMeta(root = ROOT) {
   }
   const meta = { frames, entries };
   return { text: serialiseMapMeta(meta), meta, files, overrides: Object.keys(FRAME_OVERRIDES) };
-}
-
-/**
- * True when the module at `moduleUrl` is the entry point, also through a symlink.
- * @param {string} moduleUrl the caller's `import.meta.url`
- * @returns {boolean}
- */
-export function isEntryPoint(moduleUrl) {
-  if (!process.argv[1]) return false;
-  try {
-    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(moduleUrl));
-  } catch {
-    return false;
-  }
 }
 
 if (isEntryPoint(import.meta.url)) {

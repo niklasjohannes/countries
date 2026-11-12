@@ -8,16 +8,13 @@
 
 import { getPxPerUnit, largestRingBbox } from './map.js';
 import { CONTINENTS, SUBREGIONS } from './srs.js';
+import { isPlainObject } from './validate.js';
 
 /** Geometry key of the world file (`data/geometry/world.json`). */
 export const WORLD_KEY = 'world';
 
 /** An entry is small when both sides are under this many CSS px (as in `map-meta.json`). */
 export const SMALL_SIDE_PX = 12;
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * The continent a scope sits in, or `null` for "All".

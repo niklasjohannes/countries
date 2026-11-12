@@ -32,6 +32,8 @@
 
 // ---- Tunables ----
 
+import { isPlainObject } from './validate.js';
+
 /** Wrong options per multiple-choice question (4 options in total). */
 export const DISTRACTOR_COUNT = 3;
 
@@ -116,10 +118,6 @@ const LETTER_FOLDS = Object.freeze({
 const FOLDED_LETTERS = new RegExp(`[${Object.keys(LETTER_FOLDS).join('')}]`, 'gu');
 
 // ---- Validation helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function assertCode(value, name) {
   if (typeof value !== 'string' || !CODE_PATTERN.test(value)) {

@@ -20,7 +20,9 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+import { isEntryPoint } from './entry-point.js';
 import { deflateSync } from 'node:zlib';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -301,7 +303,7 @@ export function buildIcons() {
   return written;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   for (const path of buildIcons()) {
     console.log(`Wrote ${path}`);
   }

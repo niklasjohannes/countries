@@ -21,10 +21,11 @@
 //      `data/map-meta.json`.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { isEntryPoint } from './entry-point.js';
 import { FRAME_PADDING, computeFrames } from './frames.js';
 import { EARTH_RADIUS_KM, makeProjection, wrapLongitude } from './projection.js';
 import {
@@ -1463,20 +1464,7 @@ export function buildGeometryFull(root = ROOT) {
   return { outputs, land, neighbours };
 }
 
-/**
- * True when this module is the entry point, also through a symlink.
- * @returns {boolean}
- */
-function isEntryPoint() {
-  if (!process.argv[1]) return false;
-  try {
-    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryPoint()) {
+if (isEntryPoint(import.meta.url)) {
   const outputs = buildGeometry();
   if (process.argv.includes('--check')) {
     let stale = false;

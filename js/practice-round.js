@@ -56,13 +56,10 @@ import {
 import { FRAME_LEVEL_CONTINENT, FRAME_LEVEL_SUBREGION } from './map-view.js';
 import { createCardState, isNewCard, requeueLapse, updateCardState } from './srs.js';
 import { QUIZ_MODES, loadStates, saveStates } from './storage.js';
+import { isPlainObject } from './validate.js';
 
 /** Answer mode of a name → tap card (it has no MC or typing UI). */
 export const ANSWER_MODE_TAP = 'tap';
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function assertCodes(codes) {
   if (!Array.isArray(codes) || !codes.every((code) => typeof code === 'string' && code !== '')) {

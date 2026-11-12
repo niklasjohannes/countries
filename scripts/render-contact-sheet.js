@@ -19,9 +19,10 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { FRAME_OVERRIDES } from './frame-overrides.js';
 import { getPxPerUnit } from '../js/map.js';
-import { SMALL_VIEWPORT_PX, buildMapMeta, isEntryPoint } from './build-map-meta.js';
+import { FRAME_OVERRIDES } from './frame-overrides.js';
+import { SMALL_VIEWPORT_PX, buildMapMeta } from './build-map-meta.js';
+import { isEntryPoint } from './entry-point.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT_DIR = resolve(ROOT, '.tmp/contact-sheet');
