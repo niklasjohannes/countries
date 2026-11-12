@@ -1,0 +1,147 @@
+/*
+ * Practice view (js/views/practice.js, js/question.js). Minimal and
+ * functional: the full visual design lands in issue 11.
+ */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.practice-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.practice-progress {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.practice-feedback {
+  min-height: 1.5em;
+  margin: var(--space-2) 0;
+  font-weight: 700;
+}
+
+.practice-feedback.is-hit::before {
+  content: "✓ ";
+}
+
+.practice-feedback.is-miss::before {
+  content: "✕ ";
+}
+
+.practice-map {
+  height: clamp(14rem, 40vh, 28rem);
+  border: 2px solid var(--color-text);
+  background: var(--color-bg);
+}
+
+.practice-question {
+  margin: var(--space-3) 0;
+}
+
+.practice-next-area {
+  min-height: var(--tap-min);
+}
+
+.practice-summary-title {
+  font-size: 1.75rem;
+}
+
+.practice-score-caption {
+  margin-bottom: 0;
+  color: var(--color-text-muted);
+}
+
+.practice-score {
+  margin-top: 0;
+  font-size: 2.5rem;
+  font-weight: 700;
+}
+
+.question-tap-prompt {
+  margin: 0;
+  font-size: 1.375rem;
+}
+
+.question-options {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.question-option,
+.question-suggestion {
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 2px solid var(--color-text);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.question-option:disabled,
+.question-suggestion:disabled {
+  cursor: default;
+}
+
+.question-option.is-chosen,
+.question-suggestion.is-chosen {
+  background: var(--color-surface);
+}
+
+.question-option.is-correct,
+.question-suggestion.is-correct {
+  border-width: 4px;
+  font-weight: 700;
+}
+
+.question-option.is-wrong,
+.question-suggestion.is-wrong {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.question-typing {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.question-input {
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: 2px solid var(--color-text);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.question-suggestions {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.question-answer {
+  margin: 0;
+  font-weight: 700;
+}
+
+.question-answer:empty {
+  display: none;
+}
+
+.practice-confirm .sheet-actions {
+  align-items: stretch;
+}
