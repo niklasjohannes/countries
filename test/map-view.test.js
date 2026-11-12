@@ -9,6 +9,7 @@ import {
   REGION_LABEL,
   boxesIntersect,
   createMapView,
+  placeLabels,
   planScene,
   toFramePoint,
   toViewBox,
@@ -119,6 +120,53 @@ describe('boxesIntersect', () => {
     assert.equal(boxesIntersect([0, 0, 10, 10], [5, 5, 15, 15]), true);
     assert.equal(boxesIntersect([0, 0, 10, 10], [10, 10, 20, 20]), true);
     assert.equal(boxesIntersect([0, 0, 10, 10], [11, 0, 20, 10]), false);
+  });
+});
+
+describe('placeLabels', () => {
+  const frame = [0, 0, 400, 400]; // 1 px per unit
+  const options = { frame, pxPerUnit: 1 };
+  const overlap = (a, b, placed) => Math.abs(placed[a].y - placed[b].y) < 12 * 1.3 && !placed[a].hidden && !placed[b].hidden;
+
+  it('leaves a lone label where it is, centred', () => {
+    assert.deepEqual(placeLabels([{ x: 200, y: 200, text: 'Chad' }], options), [{ x: 200, y: 200, anchor: 'middle', hidden: false }]);
+  });
+
+  it('nudges colliding labels apart and keeps the target in place', () => {
+    const items = [
+      { x: 200, y: 200, text: 'Dominica', isTarget: true },
+      { x: 202, y: 203, text: 'Martinique' },
+      { x: 198, y: 199, text: 'Guadeloupe' }
+    ];
+    const placed = placeLabels(items, options);
+    assert.equal(placed[0].y, 200);
+    assert.ok(placed.every((p) => !p.hidden));
+    assert.ok(!overlap(0, 1, placed) && !overlap(0, 2, placed) && !overlap(1, 2, placed));
+  });
+
+  it('drops a non-target label that fits nowhere, never the target', () => {
+    const crowd = Array.from({ length: 12 }, (_, i) => ({ x: 200, y: 200, text: 'Somewhere', isTarget: i === 11 }));
+    const placed = placeLabels(crowd, options);
+    assert.equal(placed[11].hidden, false);
+    assert.ok(placed.some((p) => p.hidden));
+  });
+
+  it('clamps labels near the frame edges, horizontally by anchor and vertically by position', () => {
+    const [left, right, top, bottom] = placeLabels([
+      { x: 2, y: 200, text: 'Left island' },
+      { x: 398, y: 200, text: 'Right island' },
+      { x: 200, y: 1, text: 'Top' },
+      { x: 200, y: 399, text: 'Bottom' }
+    ], options);
+    assert.equal(left.anchor, 'start');
+    assert.equal(right.anchor, 'end');
+    assert.ok(top.y >= 6 && bottom.y <= 394);
+  });
+
+  it('rejects bad input', () => {
+    assert.throws(() => placeLabels(null, options), /`items`/);
+    assert.throws(() => placeLabels([], { frame, pxPerUnit: 0 }), /`pxPerUnit`/);
+    assert.throws(() => placeLabels([], { frame: [0, 0], pxPerUnit: 1 }), /`frame`/);
   });
 });
 

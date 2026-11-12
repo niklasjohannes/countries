@@ -194,6 +194,74 @@ export function planScene({ geometry, meta, frame, frameLevel }) {
   return { land, contextD };
 }
 
+// ---- Label placement ----
+
+/** Estimated glyph width of the label font, as a share of its size (monospace). */
+const LABEL_CHAR_WIDTH_SHARE = 0.62;
+/** Estimated box height of a label, as a share of its font size. */
+const LABEL_LINE_HEIGHT_SHARE = 1.3;
+/** Vertical nudges tried, in label heights, when a label collides. */
+const LABEL_NUDGES = [0, -1, 1, -2, 2, -3, 3];
+
+/**
+ * Places labels so they stay inside the frame and do not overlap: each label
+ * is kept inside the frame (horizontally through its text anchor, vertically
+ * by clamping), and one that collides with an earlier label is nudged up or
+ * down by whole label heights. A non-target label that fits nowhere is
+ * dropped; the target's label is never dropped (it takes its own spot even if
+ * it overlaps). Earlier items win, so pass the target first.
+ *
+ * @param {Array<{ x: number, y: number, text: string, isTarget?: boolean }>} items Label points in frame units and their texts.
+ * @param {{ frame: number[], pxPerUnit: number, fontPx?: number }} options The frame, CSS px per unit and font size.
+ * @returns {Array<{ x: number, y: number, anchor: string, hidden: boolean }>} One placement per item, in frame units.
+ */
+export function placeLabels(items, { frame, pxPerUnit, fontPx = LABEL_FONT_PX }) {
+  if (!Array.isArray(items)) {
+    throw new TypeError('`items` must be an array.');
+  }
+  assertFrame(frame);
+  if (!(pxPerUnit > 0)) {
+    throw new RangeError('`pxPerUnit` must be a positive number.');
+  }
+  const width = (frame[2] - frame[0]) * pxPerUnit;
+  const height = (frame[3] - frame[1]) * pxPerUnit;
+  const boxHeight = fontPx * LABEL_LINE_HEIGHT_SHARE + LABEL_HALO_PX;
+  const placed = [];
+  return items.map((item) => {
+    const boxWidth = item.text.length * fontPx * LABEL_CHAR_WIDTH_SHARE + LABEL_HALO_PX;
+    const px = (item.x - frame[0]) * pxPerUnit;
+    const py = (item.y - frame[1]) * pxPerUnit;
+    let anchor = 'middle';
+    let left = px - boxWidth / 2;
+    if (left < 0) {
+      anchor = 'start';
+      left = Math.max(0, px);
+    } else if (left + boxWidth > width) {
+      anchor = 'end';
+      left = Math.min(width, px) - boxWidth;
+    }
+    const clampY = (y) => Math.min(Math.max(y, boxHeight / 2), Math.max(boxHeight / 2, height - boxHeight / 2));
+    let chosen = null;
+    for (const nudge of LABEL_NUDGES) {
+      const y = clampY(py + nudge * boxHeight);
+      const box = [left, y - boxHeight / 2, left + boxWidth, y + boxHeight / 2];
+      if (!placed.some((other) => other[0] < box[2] && box[0] < other[2] && other[1] < box[3] && box[1] < other[3])) {
+        chosen = { box, y };
+        break;
+      }
+    }
+    if (chosen === null && item.isTarget) {
+      const y = clampY(py);
+      chosen = { box: [left, y - boxHeight / 2, left + boxWidth, y + boxHeight / 2], y };
+    }
+    if (chosen === null) {
+      return { x: item.x, y: item.y, anchor, hidden: true };
+    }
+    placed.push(chosen.box);
+    return { x: item.x, y: frame[1] + chosen.y / pxPerUnit, anchor, hidden: false };
+  });
+}
+
 // ---- DOM ----
 
 /**
@@ -276,10 +344,20 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         fillInset(layout.source);
       }
     }
-    for (const label of state.labels) {
-      label.setAttribute('font-size', LABEL_FONT_PX / pxPerUnit);
-      label.setAttribute('stroke-width', LABEL_HALO_PX / pxPerUnit);
+    for (const { node } of state.labels) {
+      node.setAttribute('font-size', LABEL_FONT_PX / pxPerUnit);
+      node.setAttribute('stroke-width', LABEL_HALO_PX / pxPerUnit);
     }
+    const placements = placeLabels(
+      state.labels.map(({ x, y, text, isTarget }) => ({ x, y, text, isTarget })),
+      { frame: state.frame, pxPerUnit }
+    );
+    state.labels.forEach(({ node }, i) => {
+      node.setAttribute('x', placements[i].x);
+      node.setAttribute('y', placements[i].y);
+      node.setAttribute('text-anchor', placements[i].anchor);
+      node.setAttribute('display', placements[i].hidden ? 'none' : 'inline');
+    });
     const sizeMarker = (text, unitsPerPx) => {
       text.setAttribute('font-size', CANDIDATE_FONT_PX * unitsPerPx);
       text.setAttribute('stroke-width', LABEL_HALO_PX * unitsPerPx);
@@ -546,19 +624,17 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         if (lx < state.frame[0] || lx > state.frame[2] || ly < state.frame[1] || ly > state.frame[3]) {
           continue;
         }
-        // Keep labels near a frame edge inside the frame.
-        const share = (item.label[0] - state.frame[0]) / (state.frame[2] - state.frame[0]);
-        const anchor = share > 0.85 ? 'end' : share < 0.15 ? 'start' : 'middle';
         const text = make('text', {
           class: code === target ? 'map-label map-label-target' : 'map-label',
           x: item.label[0],
           y: item.label[1],
-          'text-anchor': anchor,
+          'text-anchor': 'middle',
           'dominant-baseline': 'middle'
         });
         text.textContent = name;
         state.layer.append(text);
-        state.labels.push(text);
+        // Position, anchor and visibility are set by `relayout` (placeLabels).
+        state.labels.push({ node: text, x: item.label[0], y: item.label[1], text: name, isTarget: code === target });
       }
       relayout();
     },
