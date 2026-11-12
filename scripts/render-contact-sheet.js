@@ -19,8 +19,10 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { getPxPerUnit } from '../js/map.js';
 import { FRAME_OVERRIDES } from './frame-overrides.js';
-import { SMALL_FRAME_WIDTH_PX, buildMapMeta, isEntryPoint } from './build-map-meta.js';
+import { SMALL_VIEWPORT_PX, buildMapMeta } from './build-map-meta.js';
+import { isEntryPoint } from './entry-point.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT_DIR = resolve(ROOT, '.tmp/contact-sheet');
@@ -146,7 +148,7 @@ export function renderSmallEntries(small, files, frameOf, title, meta) {
     const top = CELL.gap + Math.floor(i / COLUMNS) * (CELL.height + CELL.gap);
 
     // Marker panel: the real render scale, cropped around the label point.
-    const unitsPerPx = (frame[2] - frame[0]) / SMALL_FRAME_WIDTH_PX;
+    const unitsPerPx = 1 / getPxPerUnit(frame, SMALL_VIEWPORT_PX);
     const half = (CELL.marker / 2) * unitsPerPx;
     const [lx, ly] = entry.label;
     const markerWindow = [lx - half, ly - half, lx + half, ly + half];

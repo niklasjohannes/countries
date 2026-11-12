@@ -7,9 +7,11 @@
 // The output is deterministic, so `test/countries.test.js` can regenerate it
 // and compare byte for byte.
 
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { isEntryPoint } from './entry-point.js';
 
 import {
   CONTINENTS,
@@ -170,21 +172,7 @@ export function renderCountries() {
   return serialiseCountries(buildCountries());
 }
 
-/**
- * True when this module is the entry point, also through a symlink or when the
- * script was started without its `.js` extension.
- * @returns {boolean}
- */
-function isEntryPoint() {
-  if (!process.argv[1]) return false;
-  try {
-    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryPoint()) {
+if (isEntryPoint(import.meta.url)) {
   const text = renderCountries();
   if (process.argv.includes('--check')) {
     let current = '';

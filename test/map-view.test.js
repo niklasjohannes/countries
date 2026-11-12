@@ -9,6 +9,7 @@ import {
   REGION_LABEL,
   boxesIntersect,
   createMapView,
+  placeLabels,
   planScene,
   toFramePoint,
   toViewBox,
@@ -122,6 +123,53 @@ describe('boxesIntersect', () => {
   });
 });
 
+describe('placeLabels', () => {
+  const frame = [0, 0, 400, 400]; // 1 px per unit
+  const options = { frame, pxPerUnit: 1 };
+  const overlap = (a, b, placed) => Math.abs(placed[a].y - placed[b].y) < 12 * 1.3 && !placed[a].hidden && !placed[b].hidden;
+
+  it('leaves a lone label where it is, centred', () => {
+    assert.deepEqual(placeLabels([{ x: 200, y: 200, text: 'Chad' }], options), [{ x: 200, y: 200, anchor: 'middle', hidden: false }]);
+  });
+
+  it('nudges colliding labels apart and keeps the target in place', () => {
+    const items = [
+      { x: 200, y: 200, text: 'Dominica', isTarget: true },
+      { x: 202, y: 203, text: 'Martinique' },
+      { x: 198, y: 199, text: 'Guadeloupe' }
+    ];
+    const placed = placeLabels(items, options);
+    assert.equal(placed[0].y, 200);
+    assert.ok(placed.every((p) => !p.hidden));
+    assert.ok(!overlap(0, 1, placed) && !overlap(0, 2, placed) && !overlap(1, 2, placed));
+  });
+
+  it('drops a non-target label that fits nowhere, never the target', () => {
+    const crowd = Array.from({ length: 12 }, (_, i) => ({ x: 200, y: 200, text: 'Somewhere', isTarget: i === 11 }));
+    const placed = placeLabels(crowd, options);
+    assert.equal(placed[11].hidden, false);
+    assert.ok(placed.some((p) => p.hidden));
+  });
+
+  it('clamps labels near the frame edges, horizontally by anchor and vertically by position', () => {
+    const [left, right, top, bottom] = placeLabels([
+      { x: 2, y: 200, text: 'Left island' },
+      { x: 398, y: 200, text: 'Right island' },
+      { x: 200, y: 1, text: 'Top' },
+      { x: 200, y: 399, text: 'Bottom' }
+    ], options);
+    assert.equal(left.anchor, 'start');
+    assert.equal(right.anchor, 'end');
+    assert.ok(top.y >= 6 && bottom.y <= 394);
+  });
+
+  it('rejects bad input', () => {
+    assert.throws(() => placeLabels(null, options), /`items`/);
+    assert.throws(() => placeLabels([], { frame, pxPerUnit: 0 }), /`pxPerUnit`/);
+    assert.throws(() => placeLabels([], { frame: [0, 0], pxPerUnit: 1 }), /`frame`/);
+  });
+});
+
 describe('toFramePoint', () => {
   it('applies the matrix', () => {
     assert.deepEqual(toFramePoint({ a: 2, b: 0, c: 0, d: 2, e: 10, f: -5 }, 3, 4), [16, 3]);
@@ -231,6 +279,39 @@ describe('createMapView render', () => {
     assert.equal(byClass(view.svg, 'map-marker').length, 0);
   });
 
+  it('rings a target under about 10 px even when the meta does not flag it small', () => {
+    const custom = { entries: { aa: geometry.entries.km }, context: {} };
+    const info = { entries: { aa: { small: false, smallInContinent: false, tappable: true, neighbours: [] } } };
+    const frame = [...geometry.entries.km.bbox];
+    frame[2] += 600_000;
+    frame[3] += 600_000;
+    const view = makeView();
+    layOut(view.svg, VIEWPORT, frame);
+    view.render({ geometry: custom, meta: info, frame, frameLevel: 'subregion', target: 'aa' });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    // The same entry at a scale where it is big is left alone.
+    const near = [...geometry.entries.km.bbox];
+    layOut(view.svg, VIEWPORT, near);
+    view.render({ geometry: custom, meta: info, frame: near, frameLevel: 'subregion', target: 'aa' });
+    assert.equal(byClass(view.svg, 'map-marker').length, 0);
+  });
+
+  it('drops an inset that existed only because the target was tiny once it is big', () => {
+    const custom = { entries: { aa: geometry.entries.km }, context: {} };
+    const info = { entries: { aa: { small: false, smallInContinent: false, tappable: true, neighbours: [] } } };
+    const wide = [...geometry.entries.km.bbox];
+    wide[2] += 600_000;
+    wide[3] += 600_000;
+    const view = makeView();
+    layOut(view.svg, VIEWPORT, wide);
+    view.render({ geometry: custom, meta: info, frame: wide, frameLevel: 'subregion', target: 'aa' });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    // The map gets much bigger (a rotation, say): the entry is no longer tiny.
+    layOut(view.svg, { width: 20_000, height: 20_000 }, wide);
+    view.relayout();
+    assert.equal(byClass(view.svg, 'map-marker').length, 0);
+  });
+
   it('rejects an unknown target, and one that is not drawn in this frame', () => {
     const view = makeView();
     assert.throws(() => view.render({ ...baseInput, target: 'zz' }), /`target`/);
@@ -246,7 +327,15 @@ describe('createMapView render', () => {
     const classes = view.svg.children.map((n) => n.attrs.class);
     assert.ok(classes.indexOf('map-inset-layer') < classes.indexOf('map-label-layer'));
     const [inset] = byClass(view.svg, 'map-inset');
-    assert.ok(inset.children.length < planScene(eastern).land.length + 1);
+    // Exactly the land whose bbox meets the inset's source box (plus the context
+    // path), and strictly fewer than the whole scene: a filter that kept
+    // everything would fail this.
+    const scene = planScene(eastern);
+    const source = inset.attrs.viewBox.split(' ').map(Number);
+    const sourceBox = [source[0], source[1], source[0] + source[2], source[1] + source[3]];
+    const expected = scene.land.filter((item) => boxesIntersect(item.bbox, sourceBox));
+    assert.ok(expected.length >= 1 && expected.length < scene.land.length, 'the fixture must have land inside and outside the source box');
+    assert.deepEqual(byClass(inset, 'map-land').map((n) => n.attrs.d), expected.map((item) => item.d));
     assert.ok(byClass(inset, 'map-context').length <= 1);
   });
 
@@ -547,6 +636,36 @@ describe('candidates of an ambiguous tap', () => {
     assert.equal(byClass(inset, 'map-candidate-marker').length, 0);
   });
 
+  it('rejects a second reveal with a different target, and ignores one with the same target', () => {
+    const view = makeView();
+    view.render({ ...baseInput });
+    view.reveal({ target: 'za', correct: true, names: { za: 'South Africa' } });
+    assert.doesNotThrow(() => view.reveal({ target: 'za', correct: true, names: { za: 'South Africa' } }));
+    assert.throws(() => view.reveal({ target: 'ls', correct: true, names: { ls: 'Lesotho' } }), /already revealed/);
+  });
+
+  it('keeps the ring marker and inset of a small target through the reveal', () => {
+    const names = { km: 'Comoros', mz: 'Mozambique' };
+    // Target drawn from the start (map -> name cards).
+    let view = makeView();
+    view.render({ ...eastern, target: 'km' });
+    view.reveal({ target: 'km', correct: true, names });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    assert.equal(byClass(view.svg, 'map-inset').length, 1);
+    // Wrong pick: labels appear, the marker stays.
+    view = makeView();
+    view.render({ ...eastern, target: 'km' });
+    view.reveal({ target: 'km', picked: 'mz', correct: false, names });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    // Name -> tap: the marker appears at the reveal, also after an ambiguous tap on the target itself.
+    view = makeView();
+    view.render({ ...eastern, interactive: true });
+    view.markCandidates(['mz', 'km']);
+    view.reveal({ target: 'km', picked: 'km', correct: true, names });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    assert.equal(byClass(byClass(view.svg, 'map-inset')[0], 'map-target').length, 1);
+  });
+
   it('validates input and requires a render first', () => {
     const view = makeView();
     assert.throws(() => view.markCandidates(['za', 'ls']), /`render`/);
@@ -569,6 +688,20 @@ describe('shade', () => {
     assert.deepEqual([Number(circles[0].attrs.cx), Number(circles[0].attrs.cy)], geometry.entries.km.label);
     assert.ok(Number(circles[0].attrs.r) > 0);
     assert.equal(all(view.svg, (n) => n.tag === 'text').length, 0);
+  });
+
+  it('draws one ring for a cluster of small shaded entries (no merged blobs)', () => {
+    const tiny = (x) => ({ rings: square(x, 1_000, 5), bbox: [x, 1_000, x + 5, 1_005], label: [x + 2, 1_002] });
+    const custom = { entries: { aa: tiny(1_000), bb: tiny(1_010), cc: tiny(30_000) }, context: {} };
+    const small = { small: true, smallInContinent: true, tappable: false, neighbours: [] };
+    const info = { entries: { aa: small, bb: small, cc: small } };
+    const frame = [0, 0, 40_000, 40_000];
+    const view = makeView();
+    layOut(view.svg, VIEWPORT, frame);
+    view.render({ geometry: custom, meta: info, frame, frameLevel: 'continent' });
+    view.shade(['aa', 'bb', 'cc']);
+    const visible = byClass(view.svg, 'map-marker-shade').filter((n) => n.attrs.display !== 'none');
+    assert.equal(visible.length, 2);
   });
 
   it('replaces earlier shading and accepts an empty list', () => {

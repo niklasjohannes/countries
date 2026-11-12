@@ -1,6 +1,11 @@
 // Work that must finish before the page may reload (an import reading and
 // writing progress, an export building a file). js/app.js holds a service-
 // worker reload back while any of it is running, and retries once it settles.
+//
+// Why it exists next to the open-dialog check: an export hands its file to the
+// native share sheet and an import reads a file picked in the native file
+// picker. Neither is a `<dialog>`, so only this tells the reload that work is
+// still running.
 
 let activeCount = 0;
 const idleListeners = new Set();

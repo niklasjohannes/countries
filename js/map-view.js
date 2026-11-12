@@ -35,7 +35,8 @@
 // this module does not. Call `relayout()` after attaching `view.element` to
 // the document, as a fallback for when `ResizeObserver` has not fired yet.
 
-import { MARKER_MIN_RADIUS_PX, computeInset, getPxPerUnit, hitTest, ringsToPathData } from './map.js';
+import { MARKER_MIN_RADIUS_PX, computeInset, getPxPerUnit, hitTest, largestRingBbox, ringsToPathData } from './map.js';
+import { isPlainObject, assertFrame } from './validate.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -50,21 +51,21 @@ export const LABEL_HALO_PX = 3;
 /** Size of the candidate number markers, in CSS px. */
 export const CANDIDATE_FONT_PX = 18;
 
+/**
+ * A target whose largest ring renders under this many CSS px on both sides gets
+ * a ring marker and an inset even when `map-meta.json` does not flag it small
+ * (the meta is computed for a typical phone viewport; this is the safety net
+ * for the real one).
+ */
+export const TINY_TARGET_PX = 10;
+
+/** Shade rings closer than this many ring radii (centre to centre) share one ring. */
+export const SHADE_MARKER_CLUSTER_RADII = 1.5;
+
 /** Generic label of the question region; never names the country. */
 export const REGION_LABEL = 'Map question';
 
 // ---- Validation helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function assertFrame(frame) {
-  const isShape = Array.isArray(frame) && frame.length === 4 && frame.every(Number.isFinite);
-  if (!isShape || !(frame[2] > frame[0]) || !(frame[3] > frame[1])) {
-    throw new TypeError('`frame` must be an `[x0, y0, x1, y1]` array of finite numbers with `x1 > x0` and `y1 > y0`.');
-  }
-}
 
 function assertFrameLevel(frameLevel) {
   if (frameLevel !== FRAME_LEVEL_SUBREGION && frameLevel !== FRAME_LEVEL_CONTINENT) {
@@ -186,6 +187,74 @@ export function planScene({ geometry, meta, frame, frameLevel }) {
   return { land, contextD };
 }
 
+// ---- Label placement ----
+
+/** Estimated glyph width of the label font, as a share of its size (monospace). */
+const LABEL_CHAR_WIDTH_SHARE = 0.62;
+/** Estimated box height of a label, as a share of its font size. */
+const LABEL_LINE_HEIGHT_SHARE = 1.3;
+/** Vertical nudges tried, in label heights, when a label collides. */
+const LABEL_NUDGES = [0, -1, 1, -2, 2, -3, 3];
+
+/**
+ * Places labels so they stay inside the frame and do not overlap: each label
+ * is kept inside the frame (horizontally through its text anchor, vertically
+ * by clamping), and one that collides with an earlier label is nudged up or
+ * down by whole label heights. A non-target label that fits nowhere is
+ * dropped; the target's label is never dropped (it takes its own spot even if
+ * it overlaps). Earlier items win, so pass the target first.
+ *
+ * @param {Array<{ x: number, y: number, text: string, isTarget?: boolean }>} items Label points in frame units and their texts.
+ * @param {{ frame: number[], pxPerUnit: number, fontPx?: number }} options The frame, CSS px per unit and font size.
+ * @returns {Array<{ x: number, y: number, anchor: string, hidden: boolean }>} One placement per item, in frame units.
+ */
+export function placeLabels(items, { frame, pxPerUnit, fontPx = LABEL_FONT_PX }) {
+  if (!Array.isArray(items)) {
+    throw new TypeError('`items` must be an array.');
+  }
+  assertFrame(frame);
+  if (!(pxPerUnit > 0)) {
+    throw new RangeError('`pxPerUnit` must be a positive number.');
+  }
+  const width = (frame[2] - frame[0]) * pxPerUnit;
+  const height = (frame[3] - frame[1]) * pxPerUnit;
+  const boxHeight = fontPx * LABEL_LINE_HEIGHT_SHARE + LABEL_HALO_PX;
+  const placed = [];
+  return items.map((item) => {
+    const boxWidth = item.text.length * fontPx * LABEL_CHAR_WIDTH_SHARE + LABEL_HALO_PX;
+    const px = (item.x - frame[0]) * pxPerUnit;
+    const py = (item.y - frame[1]) * pxPerUnit;
+    let anchor = 'middle';
+    let left = px - boxWidth / 2;
+    if (left < 0) {
+      anchor = 'start';
+      left = Math.max(0, px);
+    } else if (left + boxWidth > width) {
+      anchor = 'end';
+      left = Math.min(width, px) - boxWidth;
+    }
+    const clampY = (y) => Math.min(Math.max(y, boxHeight / 2), Math.max(boxHeight / 2, height - boxHeight / 2));
+    let chosen = null;
+    for (const nudge of LABEL_NUDGES) {
+      const y = clampY(py + nudge * boxHeight);
+      const box = [left, y - boxHeight / 2, left + boxWidth, y + boxHeight / 2];
+      if (!placed.some((other) => other[0] < box[2] && box[0] < other[2] && other[1] < box[3] && box[1] < other[3])) {
+        chosen = { box, y };
+        break;
+      }
+    }
+    if (chosen === null && item.isTarget) {
+      const y = clampY(py);
+      chosen = { box: [left, y - boxHeight / 2, left + boxWidth, y + boxHeight / 2], y };
+    }
+    if (chosen === null) {
+      return { x: item.x, y: item.y, anchor, hidden: true };
+    }
+    placed.push(chosen.box);
+    return { x: item.x, y: frame[1] + chosen.y / pxPerUnit, anchor, hidden: false };
+  });
+}
+
 // ---- DOM ----
 
 /**
@@ -249,6 +318,15 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     }
     const pxPerUnit = getPxPerUnit(state.frame, viewport);
 
+    // An inset that exists only because its entry was tiny goes when it is not any more (resize).
+    if (state.inset !== null && state.inset.tinyOnly && !isTiny(state.inset.entry)) {
+      svg.removeChild(state.inset.layer);
+      state.inset = null;
+    }
+    // The target may only be known to be tiny now that the size is known.
+    if (state.inset === null && state.focus !== null) {
+      addInset(state.focus);
+    }
     if (state.inset !== null) {
       const { entry, marker, box, insetSvg } = state.inset;
       const layout = computeInset(entry, state.frame, viewport);
@@ -264,17 +342,49 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         fillInset(layout.source);
       }
     }
-    for (const label of state.labels) {
-      label.setAttribute('font-size', LABEL_FONT_PX / pxPerUnit);
-      label.setAttribute('stroke-width', LABEL_HALO_PX / pxPerUnit);
+    for (const { node } of state.labels) {
+      node.setAttribute('font-size', LABEL_FONT_PX / pxPerUnit);
+      node.setAttribute('stroke-width', LABEL_HALO_PX / pxPerUnit);
     }
+    const placements = placeLabels(
+      state.labels.map(({ x, y, text, isTarget }) => ({ x, y, text, isTarget })),
+      { frame: state.frame, pxPerUnit }
+    );
+    state.labels.forEach(({ node }, i) => {
+      node.setAttribute('x', placements[i].x);
+      node.setAttribute('y', placements[i].y);
+      node.setAttribute('text-anchor', placements[i].anchor);
+      node.setAttribute('display', placements[i].hidden ? 'none' : 'inline');
+    });
     const sizeMarker = (text, unitsPerPx) => {
       text.setAttribute('font-size', CANDIDATE_FONT_PX * unitsPerPx);
       text.setAttribute('stroke-width', LABEL_HALO_PX * unitsPerPx);
     };
     state.markers.forEach((text) => sizeMarker(text, 1 / pxPerUnit));
-    for (const circle of state.shadeMarkers) {
+    // Rings for shaded entries that are small (by the meta) or tiny (at this size).
+    for (const { circle } of state.shadeMarkers) {
+      svg.removeChild(circle);
+    }
+    state.shadeMarkers = [];
+    for (const code of state.shaded) {
+      const item = state.byCode.get(code);
+      const point = markerPoint(code);
+      if (isSmallHere(item) && point !== null) {
+        const circle = make('circle', { class: 'map-marker map-marker-shade', cx: point[0], cy: point[1], r: 1 });
+        svg.insertBefore(circle, state.layer);
+        state.shadeMarkers.push({ circle, x: point[0], y: point[1] });
+      }
+    }
+    // One ring per cluster: a ring whose centre lies within a ring-radius and
+    // a half of an earlier one is hidden, so microstates do not merge into blobs.
+    const shown = [];
+    for (const { circle, x, y } of state.shadeMarkers) {
       circle.setAttribute('r', MARKER_MIN_RADIUS_PX / pxPerUnit);
+      const overlaps = shown.some(([sx, sy]) => Math.hypot(x - sx, y - sy) * pxPerUnit < MARKER_MIN_RADIUS_PX * SHADE_MARKER_CLUSTER_RADII);
+      circle.setAttribute('display', overlaps ? 'none' : 'inline');
+      if (!overlaps) {
+        shown.push([x, y]);
+      }
     }
     if (state.inset !== null) {
       // The inset maps its square source into its square target.
@@ -284,11 +394,28 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     }
   }
 
+  // True when the entry's largest ring is under TINY_TARGET_PX on both sides
+  // at the current size (false while the size is unknown).
+  function isTiny(item) {
+    const viewport = viewportPx();
+    if (viewport === null) {
+      return false;
+    }
+    const pxPerUnit = getPxPerUnit(state.frame, viewport);
+    const [x0, y0, x1, y1] = largestRingBbox(item.rings);
+    return (x1 - x0) * pxPerUnit < TINY_TARGET_PX && (y1 - y0) * pxPerUnit < TINY_TARGET_PX;
+  }
+
+  // Small by the meta, or tiny at the size on screen.
+  function isSmallHere(item) {
+    return item !== undefined && (item.small || isTiny(item));
+  }
+
   // Marker and inset for the highlighted target when it is small at this
   // frame. The inset reuses the path data already computed for the scene.
   function addInset(code, kind = 'target') {
     const item = state.byCode.get(code);
-    if (item === undefined || !item.small || state.inset !== null) {
+    if (item === undefined || state.inset !== null || !isSmallHere(item)) {
       return;
     }
     const layer = make('g', { class: 'map-inset-layer' });
@@ -298,7 +425,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     layer.append(marker, box, insetSvg);
     // Below the labels, which stay frontmost.
     svg.insertBefore(layer, state.layer);
-    state.inset = { code, kind, layer, entry: item, marker, box, insetSvg, sourceKey: null, paths: new Map(), markers: [] };
+    state.inset = { code, kind, tinyOnly: !item.small, layer, entry: item, marker, box, insetSvg, sourceKey: null, paths: new Map(), markers: [] };
   }
 
   // The inset's content depends on its source box, so it is (re)built in
@@ -347,7 +474,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     }
   }
 
-  // Where a candidate's number goes: its label point, else its bbox centre.
+  // Where a candidate's number goes: its label point, else its largest ring's centre.
   function markerPoint(code) {
     const item = state.byCode.get(code);
     if (item === undefined) {
@@ -356,7 +483,10 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     if (item.label !== undefined) {
       return item.label;
     }
-    return [(item.bbox[0] + item.bbox[2]) / 2, (item.bbox[1] + item.bbox[3]) / 2];
+    // The largest ring's centre: the union bbox of an entry cut at the
+    // antimeridian (world.json) is centred near 0°.
+    const [x0, y0, x1, y1] = largestRingBbox(item.rings);
+    return [(x0 + x1) / 2, (y0 + y1) / 2];
   }
 
   function clearCandidates() {
@@ -385,6 +515,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     const path = state.paths.get(code);
     if (path !== undefined) {
       path.setAttribute('class', 'map-land map-target');
+      state.focus = code;
       addInset(code);
     }
   }
@@ -455,7 +586,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
 
       state = {
         scene, frame, meta, geometry, paths, byCode, hitEntries,
-        interactive, target, picked: null, revealed: false, labels: [], inset: null, candidates: null, markers: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
+        interactive, target, focus: null, picked: null, revealed: false, revealedTarget: null, labels: [], inset: null, candidates: null, markers: [], shaded: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
       };
       svg.append(state.layer);
       if (target !== null) {
@@ -489,9 +620,14 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         throw new TypeError('`names` must be an object mapping codes to names.');
       }
       if (state.revealed) {
+        // Revealing the same target again is harmless; another one is a bug in the caller.
+        if (target !== state.revealedTarget) {
+          throw new RangeError('`target` must be the target already revealed on this render.');
+        }
         return;
       }
       state.revealed = true;
+      state.revealedTarget = target;
       state.interactive = false;
       clearCandidates();
       highlight(target);
@@ -518,19 +654,17 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         if (lx < state.frame[0] || lx > state.frame[2] || ly < state.frame[1] || ly > state.frame[3]) {
           continue;
         }
-        // Keep labels near a frame edge inside the frame.
-        const share = (item.label[0] - state.frame[0]) / (state.frame[2] - state.frame[0]);
-        const anchor = share > 0.85 ? 'end' : share < 0.15 ? 'start' : 'middle';
         const text = make('text', {
           class: code === target ? 'map-label map-label-target' : 'map-label',
           x: item.label[0],
           y: item.label[1],
-          'text-anchor': anchor,
+          'text-anchor': 'middle',
           'dominant-baseline': 'middle'
         });
         text.textContent = name;
         state.layer.append(text);
-        state.labels.push(text);
+        // Position, anchor and visibility are set by `relayout` (placeLabels).
+        state.labels.push({ node: text, x: item.label[0], y: item.label[1], text: name, isTarget: code === target });
       }
       relayout();
     },
@@ -576,7 +710,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
           state.markers.push(text);
         }
       });
-      const small = codes.find((code) => state.byCode.get(code)?.small === true);
+      const small = codes.find((code) => isSmallHere(state.byCode.get(code)));
       if (small !== undefined && state.inset === null) {
         addInset(small, 'candidate');
       } else if (state.inset !== null) {
@@ -610,19 +744,8 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       for (const [code, path] of state.paths) {
         path.setAttribute('class', shaded.has(code) ? 'map-land map-shaded' : 'map-land');
       }
-      for (const circle of state.shadeMarkers) {
-        svg.removeChild(circle);
-      }
-      state.shadeMarkers = [];
-      for (const code of shaded) {
-        const item = state.byCode.get(code);
-        const point = markerPoint(code);
-        if (item.small && point !== null) {
-          const circle = make('circle', { class: 'map-marker map-marker-shade', cx: point[0], cy: point[1], r: 1 });
-          svg.insertBefore(circle, state.layer);
-          state.shadeMarkers.push(circle);
-        }
-      }
+      // The rings are (re)built in `relayout`, once the size shows which entries are tiny.
+      state.shaded = [...shaded];
       relayout();
     },
 

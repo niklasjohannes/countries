@@ -6,8 +6,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, dirname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Script } from 'node:vm';
@@ -152,6 +153,53 @@ describe('scripts/build-sw.js --check', () => {
     const result = spawnSync(process.execPath, [join(REPO_ROOT, 'scripts', 'build-sw.js'), '--check'], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /sw\.js is up to date/);
+  });
+});
+
+// The script finds its repo from its own location, so these tests run a copy
+// of it inside a throwaway git repo with a minimal app.
+describe('scripts/build-sw.js --check in a scratch repo', () => {
+  function scratchRepo() {
+    const dir = mkdtempSync(join(tmpdir(), 'build-sw-'));
+    const git = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+    mkdirSync(join(dir, 'scripts'));
+    for (const sub of ['css', 'data', 'fonts', 'icons', 'img', 'js']) mkdirSync(join(dir, sub));
+    for (const script of ['build-sw.js', 'entry-point.js']) copyFileSync(join(REPO_ROOT, 'scripts', script), join(dir, 'scripts', script));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html>');
+    writeFileSync(join(dir, 'manifest.webmanifest'), '{}');
+    for (const sub of ['css', 'data', 'fonts', 'icons', 'img']) writeFileSync(join(dir, sub, 'keep.txt'), sub);
+    writeFileSync(join(dir, 'js', 'app.js'), 'export {};\n');
+    writeFileSync(join(dir, 'sw.js'), `${BLOCK_START}\n${BLOCK_END}\n`);
+    git('init', '-q');
+    git('add', '.');
+    const run = (...args) => spawnSync(process.execPath, [join(dir, 'scripts', 'build-sw.js'), ...args], { encoding: 'utf8' });
+    return { dir, git, run };
+  }
+
+  it('exits 1 for a stale sw.js, and 0 once it is regenerated', () => {
+    const { dir, run } = scratchRepo();
+    try {
+      assert.equal(run('--check').status, 1, 'the empty block is stale');
+      assert.match(run('--check').stderr, /out of sync/);
+      assert.equal(run().status, 0);
+      assert.equal(run('--check').status, 0);
+      writeFileSync(join(dir, 'js', 'app.js'), 'export const changed = true;\n');
+      assert.equal(run('--check').status, 1, 'a changed app file makes it stale again');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails with an error naming an untracked app file', () => {
+    const { dir, run } = scratchRepo();
+    try {
+      writeFileSync(join(dir, 'js', 'new.js'), 'export {};\n');
+      const result = run('--check');
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /not tracked by git.*js\/new\.js/s);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

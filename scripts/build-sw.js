@@ -19,7 +19,9 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+
+import { isEntryPoint } from './entry-point.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SW_PATH = join(REPO_ROOT, 'sw.js');
@@ -178,7 +180,7 @@ export function buildFromRepo(root = REPO_ROOT) {
   return { version, files, block: renderBlock(version, files) };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint(import.meta.url)) {
   const { version, files, block } = buildFromRepo();
   const source = readFileSync(SW_PATH, 'utf8');
   const updated = replaceBlock(source, block);

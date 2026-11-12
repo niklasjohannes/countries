@@ -127,12 +127,14 @@ describe('decideReload', () => {
     assert.deepEqual(RELOAD_EVENTS, ['controllerchange', 'dialogclose', 'navigatehome']);
   });
 
-  it('is what js/app.js uses for every reload decision', () => {
+  it('is what js/sw-update.js uses for every reload decision', () => {
     // Intent guard: the router must not grow a second, untested path.
-    const app = readFileSync(join(REPO_ROOT, 'js', 'app.js'), 'utf8');
+    const flow = readFileSync(join(REPO_ROOT, 'js', 'sw-update.js'), 'utf8');
+    assert.match(flow, /decideReload\(state, event, getView\(\)\)/);
     for (const event of RELOAD_EVENTS) {
-      assert.match(app, new RegExp(`applyReloadEvent\\('${event}'\\)`));
+      assert.match(flow + readFileSync(join(REPO_ROOT, 'js', 'app.js'), 'utf8'), new RegExp(`'${event}'`));
     }
+    const app = readFileSync(join(REPO_ROOT, 'js', 'app.js'), 'utf8');
     assert.match(app, /isBusy\(\) \|\| document\.querySelector\('dialog\[open\]'\)/, 'busy work and any open dialog hold the reload');
     assert.equal(app.match(/location\.reload\(\)/g)?.length, 2, 'the update reload and the error screen\'s button');
   });

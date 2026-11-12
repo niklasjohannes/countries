@@ -154,14 +154,14 @@ async function startPass(container, { countries, navigate, filter, mode, pass: f
       class: 'button-quiet test-exit',
       'aria-haspopup': 'dialog'
     }, ['Exit']);
-  let focusedBeforeExit = null;
-  exitButton.addEventListener('pointerdown', () => {
-    focusedBeforeExit = document.activeElement;
-  }, { signal });
-  exitButton.addEventListener('click', () => {
-    exitSheet.open(focusedBeforeExit);
-    focusedBeforeExit = null;
-  }, { signal });
+    let focusedBeforeExit = null;
+    exitButton.addEventListener('pointerdown', () => {
+      focusedBeforeExit = document.activeElement;
+    }, { signal });
+    exitButton.addEventListener('click', () => {
+      exitSheet.open(focusedBeforeExit);
+      focusedBeforeExit = null;
+    }, { signal });
     const mapBox = el('div', { class: 'test-map' });
     const stage = el('div', { class: 'test-question' });
     const mapView = createMapView();

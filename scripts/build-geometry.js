@@ -21,10 +21,11 @@
 //      `data/map-meta.json`.
 
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { isEntryPoint } from './entry-point.js';
 import { FRAME_PADDING, computeFrames } from './frames.js';
 import { EARTH_RADIUS_KM, makeProjection, wrapLongitude } from './projection.js';
 import {
@@ -231,6 +232,27 @@ function orientPolygon(polygon) {
 }
 
 const key = (point) => `${point[0]},${point[1]}`;
+
+/**
+ * 32-bit FNV-1a hash (hex) of every point of an arc, in reading order, so two
+ * different arcs that share their first, second and last points and their
+ * length still get different ids.
+ * @param {number[][]} points
+ * @param {boolean} [reversed] read the points last to first
+ * @returns {string}
+ */
+export function hashPoints(points, reversed = false) {
+  let hash = 0x811c9dc5;
+  const mix = (value) => {
+    hash = Math.imul(hash ^ (value & 0xffffffff), 0x01000193) >>> 0;
+  };
+  for (let n = 0; n < points.length; n += 1) {
+    const [x, y] = points[reversed ? points.length - 1 - n : n];
+    mix(x);
+    mix(y);
+  }
+  return hash.toString(16).padStart(8, '0');
+}
 
 // ---- Inputs ----
 
@@ -834,7 +856,14 @@ function orientation(a, b, c) {
   return value > 0 ? 1 : value < 0 ? -1 : 0;
 }
 
-/** True when segments a-b and c-d cross at a point that is not a shared endpoint. */
+/**
+ * True when segments a-b and c-d cross at a point that is not a shared endpoint.
+ *
+ * Known gap (issue 14, D3, owner-accepted won't-fix): two segments that share
+ * an endpoint and run collinearly on top of each other are not counted. Counting
+ * them makes the build fail on Lebanon/Syria, whose border overlaps like that on
+ * the integer grid even unsimplified; the overlap has no area and is invisible.
+ */
 function segmentsCross(a, b, c, d) {
   const same = (p, q) => p[0] === q[0] && p[1] === q[1];
   if (same(a, c) || same(a, d) || same(b, c) || same(b, d)) return false;
@@ -970,9 +999,9 @@ function buildArcs(rings, spec, origin, protectedAreas) {
       }
     }
     return pieces.map((piece) => {
-      const forwardKey = `${key(piece[0])}>${key(piece[1])}>${key(piece[piece.length - 1])}>${piece.length}`;
       const last = piece.length - 1;
-      const backwardKey = `${key(piece[last])}>${key(piece[last - 1])}>${key(piece[0])}>${piece.length}`;
+      const forwardKey = `${key(piece[0])}>${key(piece[1])}>${key(piece[last])}>${piece.length}>${hashPoints(piece)}`;
+      const backwardKey = `${key(piece[last])}>${key(piece[last - 1])}>${key(piece[0])}>${piece.length}>${hashPoints(piece, true)}`;
       // A closed arc read backwards starts with the same vertex; compare its second.
       const reversed = backwardKey < forwardKey;
       const id = reversed ? backwardKey : forwardKey;
@@ -1307,28 +1336,32 @@ export function deriveNeighbours(entries, adjacency) {
   for (const island of islands) {
     const a = caps.get(island);
     const va = vectors.get(island);
-    const candidates = [];
-    for (const other of codes) {
-      if (other === island) continue;
-      const b = caps.get(other);
-      const between = Math.acos(Math.min(1, a.unit[0] * b.unit[0] + a.unit[1] * b.unit[1] + a.unit[2] * b.unit[2]));
-      if (between - a.radius - b.radius > capRad && !remote.has(island)) continue;
-      const vb = vectors.get(other);
-      let best = -1;
-      for (let i = 0; i < va.length; i += 3) {
-        for (let j = 0; j < vb.length; j += 3) {
-          const dot = va[i] * vb[j] + va[i + 1] * vb[j + 1] + va[i + 2] * vb[j + 2];
-          if (dot > best) best = dot;
+    // `all` searches every code; otherwise only those whose cap could be within reach.
+    const rank = (all) => {
+      const found = [];
+      for (const other of codes) {
+        if (other === island) continue;
+        const b = caps.get(other);
+        const between = Math.acos(Math.min(1, a.unit[0] * b.unit[0] + a.unit[1] * b.unit[1] + a.unit[2] * b.unit[2]));
+        if (!all && between - a.radius - b.radius > capRad && !remote.has(island)) continue;
+        const vb = vectors.get(other);
+        let best = -1;
+        for (let i = 0; i < va.length; i += 3) {
+          for (let j = 0; j < vb.length; j += 3) {
+            const dot = va[i] * vb[j] + va[i + 1] * vb[j + 1] + va[i + 2] * vb[j + 2];
+            if (dot > best) best = dot;
+          }
         }
+        found.push({ other, distance: Math.acos(Math.min(1, best)) });
       }
-      const distance = Math.acos(Math.min(1, best));
-      candidates.push({ other, distance });
-    }
-    candidates.sort((x, y) => x.distance - y.distance || (x.other < y.other ? -1 : 1));
-    // Within the cap, up to `count`; a remote island (Saint Helena) still gets
-    // its single nearest entry, so no list is ever empty.
-    const withinCap = candidates.filter(({ distance }) => distance <= capRad);
-    const chosen = withinCap.length > 0 ? withinCap.slice(0, MARITIME_NEIGHBOURS.count) : candidates.slice(0, 1);
+      return found.sort((x, y) => x.distance - y.distance || (x.other < y.other ? -1 : 1));
+    };
+    // Within the cap, up to `count`. When nothing is within the cap, the single
+    // nearest entry of *all* codes (the filter above only skips entries that
+    // are surely beyond the cap, and the nearest of those can still beat the
+    // nearest that passed it), so no list is ever empty and it is the true nearest.
+    const withinCap = rank(false).filter(({ distance }) => distance <= capRad);
+    const chosen = withinCap.length > 0 ? withinCap.slice(0, MARITIME_NEIGHBOURS.count) : rank(true).slice(0, 1);
     for (const { other } of chosen) {
       neighbours.get(island).add(other);
       neighbours.get(other).add(island);
@@ -1438,20 +1471,7 @@ export function buildGeometryFull(root = ROOT) {
   return { outputs, land, neighbours };
 }
 
-/**
- * True when this module is the entry point, also through a symlink.
- * @returns {boolean}
- */
-function isEntryPoint() {
-  if (!process.argv[1]) return false;
-  try {
-    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryPoint()) {
+if (isEntryPoint(import.meta.url)) {
   const outputs = buildGeometry();
   if (process.argv.includes('--check')) {
     let stale = false;

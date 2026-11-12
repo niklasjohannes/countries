@@ -17,6 +17,8 @@
 
 // ---- Tunables ----
 
+import { isPlainObject } from './validate.js';
+
 /** Tap tolerance radius in CSS px (about 7 mm on a phone). */
 export const TAP_TOLERANCE_PX = 24;
 
@@ -39,10 +41,6 @@ export const INSET_PADDING_SHARE = 0.5;
 export const MARKER_MIN_RADIUS_PX = 6;
 
 // ---- Validation helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 // Rings already validated by `hitTest`, so repeated taps on the same,
 // unchanged geometry skip the per-point checks. Holds no strong references.
@@ -221,6 +219,35 @@ export function ringsToPathData(rings) {
 }
 
 /**
+ * Bounding box of the entry's largest ring (by bbox area). An entry's union
+ * bbox over-states a scattered archipelago: what the user has to hit is the
+ * biggest piece.
+ * @param {number[][][]} rings closed rings of `[x, y]` integer points
+ * @returns {number[]} [x0, y0, x1, y1]
+ */
+export function largestRingBbox(rings) {
+  if (!Array.isArray(rings) || rings.length === 0) throw new TypeError('`rings` must be a non-empty array of rings.');
+  let best = null;
+  let bestArea = -1;
+  for (const ring of rings) {
+    if (!Array.isArray(ring) || ring.length === 0) throw new TypeError('`rings` must contain non-empty rings.');
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of ring) {
+      box[0] = Math.min(box[0], x);
+      box[1] = Math.min(box[1], y);
+      box[2] = Math.max(box[2], x);
+      box[3] = Math.max(box[3], y);
+    }
+    const area = (box[2] - box[0]) * (box[3] - box[1]);
+    if (area > bestArea) {
+      best = box;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+/**
  * CSS px per frame unit for a frame drawn into a `viewportPx` box with
  * `preserveAspectRatio="xMidYMid meet"`: the smaller of the two axis scales.
  *
@@ -297,7 +324,7 @@ export function hitTest(point, entries, frame, viewportPx) {
 /**
  * Lays out the circle marker and zoomed inset for a (small) entry.
  *
- * - `marker`: a circle around the entry, at least `MARKER_MIN_RADIUS_PX` CSS px
+ * - `marker`: a circle around the entry (its largest ring when it has `rings`), at least `MARKER_MIN_RADIUS_PX` CSS px
  *   in radius at the given viewport, so it stays visible.
  * - `source`: a square around the entry's bbox, padded by
  *   `INSET_PADDING_SHARE` of its longer side, i.e. the part of the map the
@@ -320,7 +347,10 @@ export function computeInset(entry, frame, viewportPx) {
   assertBox(entry.bbox, 'entry.bbox', { allowEmpty: true });
   const pxPerUnit = getPxPerUnit(frame, viewportPx);
 
-  const [bx0, by0, bx1, by1] = entry.bbox;
+  // An archipelago's union bbox is far bigger than any island: ring and
+  // magnify its largest ring (the union bbox when there are no rings).
+  const hasRings = Array.isArray(entry.rings) && entry.rings.length > 0;
+  const [bx0, by0, bx1, by1] = hasRings ? largestRingBbox(entry.rings) : entry.bbox;
   const [fx0, fy0, fx1, fy1] = frame;
   const frameShortSide = Math.min(fx1 - fx0, fy1 - fy0);
   const cx = (bx0 + bx1) / 2;

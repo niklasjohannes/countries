@@ -2,15 +2,25 @@
 // needs the frames to choose each file's context land) and
 // `scripts/build-map-meta.js`. See the header of build-map-meta.js for the rules.
 
+import { getPxPerUnit, largestRingBbox } from '../js/map.js';
 import { makeProjection } from './projection.js';
 import { FRAME_OVERRIDES } from './frame-overrides.js';
 
 /** Padding added to each side of a frame, as a share of the box's longer side. */
 export const FRAME_PADDING = 0.04;
-/** Width in CSS px at which a sub-region frame is rendered, for the `small` rule. */
-export const SMALL_FRAME_WIDTH_PX = 375;
+/**
+ * Phone-shaped viewport, in CSS px, that frames are measured against for the
+ * `small` rule: the real size of `.map-svg` in practice mode at 375 × 812
+ * (the 375 px screen less the view gutters and the map's border; the height is
+ * what the flex column leaves the map, rounded down). Tall frames are
+ * height-limited there, so measuring as if every frame were 375 px wide made
+ * them look bigger than they are.
+ */
+export const SMALL_VIEWPORT_PX = Object.freeze({ width: 331, height: 400 });
 /** An entry is small when both sides of its bbox are under this many CSS px. */
 export const SMALL_LIMIT_PX = 12;
+
+export { largestRingBbox };
 
 // ---- Geometry helpers ----
 
@@ -87,15 +97,16 @@ export function computeFrame(file, codes, clip = {}) {
 }
 
 /**
- * True when the bbox, at a frame rendered 375 CSS px wide, is under 12 × 12 CSS px.
- * @param {number[]} bbox [x0, y0, x1, y1] in the frame's coordinate space
+ * True when the box, drawn in a frame on the phone-shaped viewport
+ * (`SMALL_VIEWPORT_PX`, scale from `getPxPerUnit`), is under 12 × 12 CSS px.
+ * @param {number[]} bbox [x0, y0, x1, y1] of the entry's largest ring
  * @param {number[]} frame [x0, y0, x1, y1]
+ * @param {{width: number, height: number}} [viewport] CSS px size of the map
  * @returns {boolean}
  */
-export function isSmall(bbox, frame) {
-  const frameWidth = frame[2] - frame[0];
-  if (!(frameWidth > 0)) throw new RangeError('`frame` must have a positive width.');
-  const pxPerUnit = SMALL_FRAME_WIDTH_PX / frameWidth;
+export function isSmall(bbox, frame, viewport = SMALL_VIEWPORT_PX) {
+  if (!(frame[2] - frame[0] > 0) || !(frame[3] - frame[1] > 0)) throw new RangeError('`frame` must have a positive width and height.');
+  const pxPerUnit = getPxPerUnit(frame, viewport);
   return (bbox[2] - bbox[0]) * pxPerUnit < SMALL_LIMIT_PX && (bbox[3] - bbox[1]) * pxPerUnit < SMALL_LIMIT_PX;
 }
 

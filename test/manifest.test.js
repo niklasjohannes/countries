@@ -133,10 +133,10 @@ describe('icons', () => {
 });
 
 describe('index.html head', () => {
-  it('starts with the CSP, `default-src \'self\'` and nothing looser', () => {
+  it('starts with the CSP, `default-src \'self\'` plus `base-uri` and `form-action` locked, and nothing looser', () => {
     const first = HEAD.trimStart();
     assert.ok(
-      first.startsWith('<meta http-equiv="Content-Security-Policy" content="default-src \'self\'">'),
+      first.startsWith('<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; base-uri \'none\'; form-action \'none\'">'),
       'The CSP meta tag must be the first child of <head>.'
     );
     assert.equal((HTML.match(/Content-Security-Policy/g) ?? []).length, 1);

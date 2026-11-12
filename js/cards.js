@@ -4,6 +4,7 @@
 // caller injects `rng` (`() => number` in `[0, 1)`).
 
 import { SUBREGIONS } from './srs.js';
+import { isPlainObject } from './validate.js';
 
 // ---- Tunables ----
 
@@ -22,10 +23,6 @@ export const DIRECTION_MAP_TO_NAME = 'map-to-name';
 export const DIRECTION_NAME_TO_TAP = 'name-to-tap';
 
 // ---- Validation helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 // ---- Public API ----
 

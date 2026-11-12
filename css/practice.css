@@ -64,8 +64,8 @@
 }
 
 .practice-feedback {
-  /* Reserve the line, so revealing feedback never shifts the layout. */
-  min-height: 1.5em;
+  /* Reserve the line, mark included (26px at 16px type), so revealing feedback never shifts the layout. */
+  min-height: 1.625em;
   margin: 0 0 var(--space-2);
   font-weight: 700;
 }
@@ -194,7 +194,11 @@
 
 .question-typing {
   display: grid;
+  align-content: start;
   gap: var(--space-2);
+  /* Reserve the input plus the four suggestion rows, so typing (the list
+     opening, then the answer replacing it) never changes the map's height. */
+  min-height: calc((var(--tap-min) + var(--space-2)) * 5);
 }
 
 .question-input {
@@ -237,6 +241,22 @@
   font-weight: 700;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
+}
+
+/* Missed this round: a short list under the score. */
+.practice-missed {
+  margin: calc(-1 * var(--space-4)) 0 var(--space-6);
+}
+
+.practice-missed-title {
+  margin-bottom: var(--space-1);
+  font-size: 1rem;
+}
+
+.practice-missed-list {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-muted);
 }
 
 /* ---- Confirm sheet for an ambiguous tap ---- */

@@ -6,6 +6,7 @@
 // the app stays CSP-ready) and only accepts relative URLs.
 
 import { CONTINENTS, SUBREGIONS } from './srs.js';
+import { isPlainObject } from './validate.js';
 
 /** Label of the "no filter" choice. */
 export const ALL_LABEL = 'All';
@@ -62,10 +63,6 @@ const ALLOWED_TAGS = new Set([
 const FORBIDDEN_ATTRIBUTES = new Set(['style', 'srcdoc', 'srcset']);
 const URL_ATTRIBUTES = new Set(['href', 'src', 'action', 'formaction']);
 const CHOICE_GROUP_VARIANTS = Object.freeze(['chips', 'segmented']);
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 // A URL is safe if it is a relative path or a fragment. Rejects any scheme,
 // root-absolute and protocol-relative paths. Browsers ignore leading control

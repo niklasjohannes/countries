@@ -38,6 +38,7 @@ import {
   getCurrentCode,
   getFeedbackPlan,
   getProgress,
+  getMissed,
   getScore,
   isReask,
   isRoundComplete,
@@ -48,6 +49,8 @@ import { guardQuestionArea, renderQuestion, renderTapPrompt } from '../question.
 import { ROUND_SIZE, pickRound } from '../srs.js';
 import { QUIZ_MODES, loadStates, localToday } from '../storage.js';
 import { el } from '../ui.js';
+
+const SUMMARY_MISSED_MAX = 10;
 
 let controller = null;
 
@@ -157,7 +160,12 @@ export function mount(container, context) {
     if (isAnswered || sheet !== null || guard.isGuarded()) {
       return;
     }
-    mapView.markCandidates(pair);
+    try {
+      mapView.markCandidates(pair);
+    } catch (error) {
+      handleRoundError(error);
+      return;
+    }
     const choose = (code) => {
       closeSheet({ keepMarkers: true });
       handleAnswer(code === plan.code, code);
@@ -194,10 +202,22 @@ export function mount(container, context) {
     const doneButton = el('button', { type: 'button', class: 'button', 'data-action': 'done' }, ['Done']);
     keepGoingButton.addEventListener('click', () => startRound(), { signal });
     doneButton.addEventListener('click', () => navigate('home'), { signal });
+    const missed = getMissed(round).map((code) => byCode.get(code)?.name).filter((name) => typeof name === 'string');
+    // The round is over, so names are fine here. A short list: a long one would push the buttons away.
+    const shown = missed.slice(0, SUMMARY_MISSED_MAX);
+    const missedBlock = missed.length === 0
+      ? []
+      : [el('section', { class: 'practice-missed', 'aria-label': 'Missed this round' }, [
+        el('h2', { class: 'practice-missed-title' }, [`Missed (${missed.length})`]),
+        el('p', { class: 'practice-missed-list' }, [
+          missed.length > shown.length ? `${shown.join(', ')} and ${missed.length - shown.length} more` : shown.join(', ')
+        ])
+      ])];
     container.replaceChildren(
       el('h1', { class: 'practice-summary-title' }, ['Round complete']),
       el('p', { class: 'practice-score-caption' }, ['Correct']),
       el('p', { class: 'practice-score' }, [`${score.correct} / ${score.total}`]),
+      ...missedBlock,
       el('div', { class: 'view-actions practice-actions' }, [keepGoingButton, doneButton])
     );
     keepGoingButton.focus({ preventScroll: true });
@@ -310,10 +330,11 @@ export function mount(container, context) {
   // Replaces the view with a message and a way out. Used for every failure
   // in a round: loading, planning, rendering and answering.
   function handleRoundError(error) {
-    console.error(error);
+    // After the view is gone (aborted) an error is only noise, so check first.
     if (signal.aborted) {
       return;
     }
+    console.error(error);
     clearAdvance();
     closeSheet();
     const back = el('button', { type: 'button', class: 'button' }, ['Back']);

@@ -17,6 +17,7 @@
 // The continent filter is deliberately never stored (PLAN decision 2).
 
 import { sanitizeStates } from './srs.js';
+import { isPlainObject } from './validate.js';
 
 /** `localStorage` key of the SRS card-state map. */
 export const SRS_STORAGE_KEY = 'countries.srs.v1';
@@ -31,10 +32,6 @@ export const QUIZ_MODES = Object.freeze(['mc', 'typing']);
 export const DEFAULT_MODE = 'mc';
 
 // ---- Helpers ----
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 // Reading `globalThis.localStorage` itself can throw (SecurityError when the
 // browser blocks site data), so the lookup is guarded too.

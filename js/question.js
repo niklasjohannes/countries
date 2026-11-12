@@ -28,6 +28,7 @@
 import { buildChoices, filterSuggestions } from './quiz.js';
 import { QUIZ_MODES } from './storage.js';
 import { el } from './ui.js';
+import { isPlainObject } from './validate.js';
 
 /**
  * Time (ms) after a question appears during which clicks on it are ignored
@@ -107,10 +108,6 @@ function endComposition(typing) {
   if (hadFocus) {
     input.focus({ preventScroll: true });
   }
-}
-
-function isPlainObject(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function assertSignal(signal) {
