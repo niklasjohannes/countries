@@ -99,22 +99,25 @@ Taiwan and Kosovo aren't in M49, so they are placed by geography (`eastern-asia`
 - `data/geometry/<continent>.json` and `data/geometry/world.json`:
 
   ```json
-  { "projection": {}, "scale": 1, "entries": { "<code>": { "rings": [[[x, y], …], …], "bbox": [x0, y0, x1, y1], "label": [x, y] } } }
+  { "projection": {}, "scale": 1, "entries": { "<code>": { "rings": [[[x, y], …], …], "bbox": [x0, y0, x1, y1], "label": [x, y] } },
+    "context": { "<code>": { "rings": [[[x, y], …], …], "bbox": [x0, y0, x1, y1] } } }
   ```
 
   - Coordinates are integers in a fixed coordinate space for each file.
   - Rings are closed and come from shared-arc simplification.
   - `label` is Natural Earth's `LABEL_X`/`LABEL_Y`, projected.
+  - **`context` (owner decision, issue 6)**: continent files only (not `world.json`). It holds the land of *other* continents that reaches any of this continent's frames (continent and sub-regions, padded), in this file's projection, simplified and quantised like `entries`, so borders with own land meet exactly. It is a separate key so codes never collide (`tr` is in `asia.entries` and in `europe.context`) and so `entries` stays own-continent only: context land is never highlighted, tappable, asked or hit-tested, and has no `label`.
 - `data/map-meta.json`:
 
   ```json
   { "frames": { "<continent|subregion>": [x0, y0, x1, y1] },
-    "entries": { "<code>": { "neighbours": ["…"], "small": false, "tappable": true } } }
+    "entries": { "<code>": { "neighbours": ["…"], "small": false, "tappable": true, "smallInContinent": false } } }
   ```
 
   - `neighbours` is symmetric. It covers land neighbours, plus maritime neighbours for islands.
   - `small` is true when the entry's bbox at its sub-region frame, rendered 375 CSS px wide, is under 12 × 12 CSS px.
   - `tappable` is `!small`.
+  - **`smallInContinent` (owner decision, issue 6)**: the same rule at the entry's continent frame. `small` and `tappable` keep their sub-region meaning, so tap cards are unaffected. The renderer shows a circle marker and inset when an entry is small in whichever frame is on screen.
 
 ### SRS state (issue 4)
 

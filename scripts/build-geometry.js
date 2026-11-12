@@ -17,12 +17,16 @@
 //      polygons cut at the antimeridian, dissolve internal edges, project.
 //   5. Extract shared arcs, simplify each arc once (Visvalingam), quantise.
 //   6. Derive symmetric neighbours: shared arcs, plus maritime ones for islands.
+//      They are not written here: `scripts/build-map-meta.js` carries them into
+//      `data/map-meta.json`.
 
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { FRAME_PADDING, computeFrames } from './frames.js';
+import { EARTH_RADIUS_KM, makeProjection, wrapLongitude } from './projection.js';
 import {
   BREAKAWAY_RULINGS,
   GEOMETRY_FILES,
@@ -33,13 +37,12 @@ import {
   OVERSEAS_SPLITS
 } from './country-overrides.js';
 
+export { EARTH_RADIUS_KM, makeProjection, wrapLongitude };
+
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const COUNTRIES_PATH = 'data/countries.json';
 const OUTPUT_DIR = 'data/geometry';
-const NEIGHBOURS_FILE = 'neighbours.json';
 
-/** Mean Earth radius in km (spherical projections). */
-export const EARTH_RADIUS_KM = 6371;
 /** Longitudes this close to the antimeridian count as on it (degrees). */
 const SEAM_TOLERANCE_DEG = 1e-3;
 /** Largest latitude gap bridged when stitching a polygon cut at the antimeridian. */
@@ -590,22 +593,6 @@ function cutRing(outer, region, probe) {
 // ---- Step 4: per-file preparation ----
 
 /**
- * Wrap a longitude into [centre - 180, centre + 180).
- * @param {number} lon
- * @param {number} centreLon
- * @returns {number}
- */
-export function wrapLongitude(lon, centreLon) {
-  if (!Number.isFinite(lon) || !Number.isFinite(centreLon)) {
-    throw new TypeError('`lon` and `centreLon` must be finite numbers.');
-  }
-  let out = lon;
-  while (out < centreLon - 180) out += 360;
-  while (out >= centreLon + 180) out -= 360;
-  return out;
-}
-
-/**
  * Re-join polygons that Natural Earth cut along the antimeridian: drop the
  * edges on the seam and reconnect the open chains across it.
  * @param {number[][][]} rings oriented rings, longitudes already wrapped
@@ -737,47 +724,7 @@ function dissolve(rings) {
 
 // ---- Projections ----
 
-const EE = { A1: 1.340264, A2: -0.081106, A3: 0.000893, A4: 0.003796, M: Math.sqrt(3) / 2 };
 const RAD = Math.PI / 180;
-
-/**
- * Build the projection for one geometry file, from degrees to km.
- * @param {{projection: string, centre: number[]}} spec
- * @returns {(lon: number, lat: number) => number[]}
- */
-export function makeProjection(spec) {
-  if (!spec || !Array.isArray(spec.centre) || spec.centre.length !== 2) {
-    throw new TypeError('`spec` must have a `centre` of [lon, lat].');
-  }
-  const [lon0, lat0] = spec.centre;
-  if (spec.projection === 'laea') {
-    const sinPhi0 = Math.sin(lat0 * RAD);
-    const cosPhi0 = Math.cos(lat0 * RAD);
-    return (lon, lat) => {
-      const lambda = (wrapLongitude(lon, lon0) - lon0) * RAD;
-      const phi = lat * RAD;
-      const cosC = sinPhi0 * Math.sin(phi) + cosPhi0 * Math.cos(phi) * Math.cos(lambda);
-      const k = Math.sqrt(2 / (1 + cosC));
-      return [
-        EARTH_RADIUS_KM * k * Math.cos(phi) * Math.sin(lambda),
-        EARTH_RADIUS_KM * k * (cosPhi0 * Math.sin(phi) - sinPhi0 * Math.cos(phi) * Math.cos(lambda))
-      ];
-    };
-  }
-  if (spec.projection === 'equal-earth') {
-    return (lon, lat) => {
-      const lambda = (lon - lon0) * RAD;
-      const theta = Math.asin(EE.M * Math.sin(lat * RAD));
-      const t2 = theta * theta;
-      const t6 = t2 * t2 * t2;
-      const x = (2 * Math.sqrt(3) * lambda * Math.cos(theta))
-        / (3 * (9 * EE.A4 * t6 * t2 + 7 * EE.A3 * t6 + 3 * EE.A2 * t2 + EE.A1));
-      const y = theta * (EE.A1 + EE.A2 * t2 + t6 * (EE.A3 + EE.A4 * t2));
-      return [EARTH_RADIUS_KM * x, EARTH_RADIUS_KM * y];
-    };
-  }
-  throw new RangeError(`Unknown projection \`${spec.projection}\`.`);
-}
 
 // ---- Step 5: shared arcs, simplification, quantisation ----
 
@@ -1042,7 +989,9 @@ function buildArcs(rings, spec, origin, protectedAreas) {
   const tolerances = new Map();
   for (const [id, arc] of arcs) {
     const smallest = Math.min(...arc.users.map((r) => ringArea[r]));
-    let tolerance = Math.min(spec.toleranceKm2, ARC_TOLERANCE_RING_SHARE * smallest);
+    // Context land is only a backdrop, so arcs used by it alone are simplified harder.
+    const backdrop = arc.users.every((r) => rings[r].context);
+    let tolerance = Math.min(spec.toleranceKm2 * (backdrop ? CONTEXT_COARSENING : 1), ARC_TOLERANCE_RING_SHARE * smallest);
     // Borders around a disputed area must stay finer than the area itself, or
     // a coarse file (world.json) would hand the area to the wrong side.
     const arcBox = ringBbox(arc.points);
@@ -1147,15 +1096,37 @@ export function placeLabel(label, rings) {
   return best ?? rounded;
 }
 
+/** Context-only arcs use this many times the file's tolerance, and its islet threshold. */
+const CONTEXT_COARSENING = 6;
+/** Context rings must lie within this great-circle angle of the file's centre. */
+const CONTEXT_MAX_ANGLE_DEG = 120;
+
+/**
+ * Great-circle angle between two [lon, lat] points, in degrees.
+ * @param {number[]} a
+ * @param {number[]} b
+ * @returns {number}
+ */
+function angleDeg(a, b) {
+  const [ax, ay, az] = toUnitVector(a);
+  const [bx, by, bz] = toUnitVector(b);
+  return Math.acos(Math.max(-1, Math.min(1, ax * bx + ay * by + az * bz))) / RAD;
+}
+
 /**
  * Build one geometry file.
  * @param {Map<string, {polygons: number[][][][], label: number[]}>} entries
  * @param {string[]} codes entries in this file, sorted
  * @param {object} spec a GEOMETRY_FILES row
  * @param {number[][][]} [areas] breakaway-area rings in degrees, kept finely simplified
+ * @param {{codes: string[], box: number[]}|null} [context] other continents' entries to
+ *   draw as context: each of their rings is included, whole, when one of its vertices
+ *   lies in `box` ([X0, Y0, X1, Y1] in projected km). They go through the same shared-arc
+ *   topology as `codes`, so their borders with the file's own land meet exactly, and
+ *   come out under `file.context` instead of `file.entries`.
  * @returns {{file: object, adjacency: Set<string>}}
  */
-export function buildFile(entries, codes, spec, areas = []) {
+export function buildFile(entries, codes, spec, areas = [], context = null) {
   if (!(entries instanceof Map)) throw new TypeError('`entries` must be a Map.');
   if (!Array.isArray(codes)) throw new TypeError('`codes` must be an array of codes.');
   if (!Array.isArray(areas)) throw new TypeError('`areas` must be an array of rings.');
@@ -1164,9 +1135,14 @@ export function buildFile(entries, codes, spec, areas = []) {
   const wrap = spec.projection === 'laea';
   const seamLon = centreLon > 0 ? 180 : -180;
 
+  if (context !== null && (!Array.isArray(context.codes) || !Array.isArray(context.box) || context.box.length !== 4)) {
+    throw new TypeError('`context` must be null or {codes, box: [X0, Y0, X1, Y1]}.');
+  }
   const candidates = [];
   const labels = new Map();
-  for (const code of codes) {
+  const contextCodes = new Set();
+  for (const code of [...codes, ...(context?.codes ?? [])]) {
+    const isContext = !codes.includes(code);
     const entry = entries.get(code);
     if (!entry) throw new RangeError(`\`${code}\` has no geometry.`);
     let rings = entry.polygons.flat();
@@ -1175,8 +1151,20 @@ export function buildFile(entries, codes, spec, areas = []) {
       rings = stitchSeam(rings, seamLon);
     }
     rings = dissolve(rings);
-    const km = rings.map((ring) => openRing(ring.map(([lon, lat]) => project(lon, lat))));
-    for (const ring of km) if (ring.length >= 3) candidates.push({ code, ring, area: Math.abs(doubleArea(ring)) / 2 });
+    if (isContext) {
+      // Land far from the centre projects near its antipode, where it is
+      // stretched and its arcs can cross: leave those rings out.
+      rings = rings.filter((ring) => ring.every(([lon, lat]) => angleDeg([lon, lat], spec.centre) <= CONTEXT_MAX_ANGLE_DEG));
+    }
+    let km = rings.map((ring) => openRing(ring.map(([lon, lat]) => project(lon, lat))));
+    if (isContext) {
+      // Only rings with a vertex in the box.
+      const [bx0, by0, bx1, by1] = context.box;
+      km = km.filter((ring) => ring.some(([x, y]) => x >= bx0 && x <= bx1 && y >= by0 && y <= by1));
+      if (km.length === 0) continue;
+      contextCodes.add(code);
+    }
+    for (const ring of km) if (ring.length >= 3) candidates.push({ code, ring, area: Math.abs(doubleArea(ring)) / 2, context: isContext });
     labels.set(code, project(entry.label[0], entry.label[1]));
   }
 
@@ -1194,8 +1182,9 @@ export function buildFile(entries, codes, spec, areas = []) {
   }
   const largest = new Map();
   for (const { code, area } of candidates) largest.set(code, Math.max(largest.get(code) ?? 0, area));
-  const projected = candidates.filter(({ code, ring, area }) => {
-    if (area === largest.get(code) || area >= spec.minRingKm2 || area >= KEEP_RING_SHARE * largest.get(code)) return true;
+  const projected = candidates.filter(({ code, ring, area, context }) => {
+    const minRingKm2 = context ? spec.minRingKm2 * CONTEXT_COARSENING : spec.minRingKm2;
+    if (area === largest.get(code) || area >= minRingKm2 || area >= KEEP_RING_SHARE * largest.get(code)) return true;
     return ring.some((point, i) => {
       const a = key(point);
       const b = key(ring[(i + 1) % ring.length]);
@@ -1220,9 +1209,8 @@ export function buildFile(entries, codes, spec, areas = []) {
 
   const scale = spec.unitsPerKm;
   const out = {};
-  for (const code of codes) {
-    const entryRings = rings.get(code);
-    if (!entryRings || entryRings.length === 0) throw new RangeError(`\`${code}\` lost all its rings.`);
+  const contextOut = {};
+  const boxOf = (entryRings) => {
     let bx0 = Infinity;
     let by0 = Infinity;
     let bx1 = -Infinity;
@@ -1235,6 +1223,17 @@ export function buildFile(entries, codes, spec, areas = []) {
         by1 = Math.max(by1, y);
       }
     }
+    return [bx0, by0, bx1, by1];
+  };
+  for (const code of [...contextCodes].sort()) {
+    const entryRings = rings.get(code);
+    if (!entryRings || entryRings.length === 0) throw new RangeError(`Context \`${code}\` lost all its rings.`);
+    contextOut[code] = { rings: entryRings, bbox: boxOf(entryRings) };
+  }
+  for (const code of codes) {
+    const entryRings = rings.get(code);
+    if (!entryRings || entryRings.length === 0) throw new RangeError(`\`${code}\` lost all its rings.`);
+    const [bx0, by0, bx1, by1] = boxOf(entryRings);
     const [lx, ly] = labels.get(code);
     out[code] = {
       rings: entryRings,
@@ -1249,7 +1248,8 @@ export function buildFile(entries, codes, spec, areas = []) {
     origin,
     note: 'x = round((X - origin[0]) * scale), y = round((origin[1] - Y) * scale), with (X, Y) the projection in km; y grows downwards.'
   };
-  return { file: { projection, scale, entries: out }, adjacency };
+  const file = context === null ? { projection, scale, entries: out } : { projection, scale, entries: out, context: contextOut };
+  return { file, adjacency };
 }
 
 // ---- Step 6: neighbours ----
@@ -1347,7 +1347,37 @@ export function deriveNeighbours(entries, adjacency) {
 export function serialiseGeometry(file) {
   if (!file || typeof file.entries !== 'object') throw new TypeError('`file` must have `entries`.');
   const rows = Object.keys(file.entries).sort().map((code) => `${JSON.stringify(code)}:${JSON.stringify(file.entries[code])}`);
-  return `{"projection":${JSON.stringify(file.projection)},"scale":${JSON.stringify(file.scale)},"entries":{\n${rows.join(',\n')}\n}}\n`;
+  const head = `{"projection":${JSON.stringify(file.projection)},"scale":${JSON.stringify(file.scale)},"entries":{\n${rows.join(',\n')}\n}`;
+  if (!file.context) return `${head}}\n`;
+  const contextRows = Object.keys(file.context).sort().map((code) => `${JSON.stringify(code)}:${JSON.stringify(file.context[code])}`);
+  return `${head},\n"context":{\n${contextRows.join(',\n')}\n}}\n`;
+}
+
+/**
+ * The projected-km box inside which other continents' land counts as context:
+ * the bounding box of a continent's frames (continent and sub-regions), padded
+ * by FRAME_PADDING of its longer side.
+ * @param {{projection: {origin: number[]}, scale: number}} bare the continent's file, built without context
+ * @param {number[][]} frames the continent's and its sub-regions' frames, in that file's units
+ * @returns {number[]} [X0, Y0, X1, Y1] in projected km
+ */
+export function contextBox(bare, frames) {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const frame of frames) {
+    x0 = Math.min(x0, frame[0]);
+    y0 = Math.min(y0, frame[1]);
+    x1 = Math.max(x1, frame[2]);
+    y1 = Math.max(y1, frame[3]);
+  }
+  const pad = FRAME_PADDING * Math.max(x1 - x0, y1 - y0);
+  const [originX, originY] = bare.projection.origin;
+  const { scale } = bare;
+  return [
+    originX + (x0 - pad) / scale,
+    originY - (y1 + pad) / scale,
+    originX + (x1 + pad) / scale,
+    originY - (y0 - pad) / scale
+  ];
 }
 
 /**
@@ -1356,6 +1386,16 @@ export function serialiseGeometry(file) {
  * @returns {Map<string, string>} repo-relative path -> exact file text
  */
 export function buildGeometry(root = ROOT) {
+  return buildGeometryFull(root).outputs;
+}
+
+/**
+ * Build every output file, and also return the derived neighbour maps (which
+ * `scripts/build-map-meta.js` writes into `data/map-meta.json`).
+ * @param {string} [root] repository root
+ * @returns {{outputs: Map<string, string>, land: Record<string, string[]>, neighbours: Record<string, string[]>}}
+ */
+export function buildGeometryFull(root = ROOT) {
   if (typeof root !== 'string') throw new TypeError('`root` must be a path string.');
   const countriesLayer = readPinnedJson(NATURAL_EARTH.files.countries, root);
   const breakawayLayer = readPinnedJson(NATURAL_EARTH.files.breakaway, root);
@@ -1369,25 +1409,33 @@ export function buildGeometry(root = ROOT) {
     }
   }
 
-  const outputs = new Map();
+  // Pass 1 builds each continent's own land alone, only to find its frames.
+  // Pass 2 rebuilds it with the land of other continents that reaches those
+  // frames (padded) as context. See docs/DATA.md -> "Context land".
+  const membersOf = (continent) => countries.filter((country) => country.continent === continent).map((country) => country.code);
+  const bare = {};
   for (const continent of meta.continents) {
     const spec = GEOMETRY_FILES[continent];
     if (!spec) throw new RangeError(`No GEOMETRY_FILES row for \`${continent}\`.`);
-    const members = countries.filter((country) => country.continent === continent).map((country) => country.code);
-    const { file } = buildFile(entries, members, spec, areas);
+    bare[continent] = buildFile(entries, membersOf(continent), spec, areas).file;
+  }
+  const frames = computeFrames(countries, bare);
+
+  const outputs = new Map();
+  for (const continent of meta.continents) {
+    const spec = GEOMETRY_FILES[continent];
+    const own = membersOf(continent);
+    const keys = Object.keys(frames).filter((key) => key === continent || meta.subregions[key] === continent);
+    const box = contextBox(bare[continent], keys.map((key) => frames[key]));
+    const others = countries.filter((country) => country.continent !== continent).map((country) => country.code);
+    const { file } = buildFile(entries, own, spec, areas, { codes: others, box });
     outputs.set(`${OUTPUT_DIR}/${continent}.json`, serialiseGeometry(file));
   }
   const { file: world, adjacency } = buildFile(entries, [...codes].sort(), GEOMETRY_FILES.world, areas);
   outputs.set(`${OUTPUT_DIR}/world.json`, serialiseGeometry(world));
 
   const { land, neighbours } = deriveNeighbours(entries, adjacency);
-  const block = (map) => Object.keys(map).map((code) => `${JSON.stringify(code)}:${JSON.stringify(map[code])}`).join(',\n');
-  const header = { source: 'scripts/build-geometry.js', maritime: MARITIME_NEIGHBOURS };
-  outputs.set(
-    `${OUTPUT_DIR}/${NEIGHBOURS_FILE}`,
-    `{"meta":${JSON.stringify(header)},"land":{\n${block(land)}\n},"neighbours":{\n${block(neighbours)}\n}}\n`
-  );
-  return outputs;
+  return { outputs, land, neighbours };
 }
 
 /**
