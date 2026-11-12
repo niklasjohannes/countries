@@ -64,8 +64,8 @@
 }
 
 .practice-feedback {
-  /* Reserve the line, so revealing feedback never shifts the layout. */
-  min-height: 1.5em;
+  /* Reserve the line, mark included (26px at 16px type), so revealing feedback never shifts the layout. */
+  min-height: 1.625em;
   margin: 0 0 var(--space-2);
   font-weight: 700;
 }
@@ -194,7 +194,11 @@
 
 .question-typing {
   display: grid;
+  align-content: start;
   gap: var(--space-2);
+  /* Reserve the input plus the four suggestion rows, so typing (the list
+     opening, then the answer replacing it) never changes the map's height. */
+  min-height: calc((var(--tap-min) + var(--space-2)) * 5);
 }
 
 .question-input {
