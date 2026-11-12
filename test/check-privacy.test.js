@@ -1,9 +1,12 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -554,5 +557,91 @@ describe('review fixes: false negatives', () => {
     assert.throws(() => git(repo, ['push', '-q', 'origin', 'bad']));
     git(repo, ['tag', '-a', 'good', '-m', 'x']);
     git(repo, ['push', '-q', 'origin', 'good']);
+  });
+});
+
+describe('vendored-file exceptions', () => {
+  const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+  const VENDOR = 'vendor/font.txt';
+
+  /** A repo with a vendored file and an exceptions entry for it. */
+  function makeExcepted(content, { hash = sha256(content), categories = ['email'] } = {}) {
+    const repo = makeRepo();
+    mkdirSync(join(repo, 'vendor'));
+    mkdirSync(join(repo, 'scripts'));
+    writeFileSync(join(repo, VENDOR), content);
+    const entry = { path: VENDOR, sha256: hash, reason: 'upstream credits', categories };
+    writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), JSON.stringify([entry]));
+    return repo;
+  }
+
+  it('ships empty', () => {
+    const text = readFileSync(join(REPO_ROOT, 'scripts', 'privacy-exceptions.json'), 'utf8');
+    assert.deepEqual(JSON.parse(text), []);
+  });
+
+  it('suppresses email for a file whose hash matches (--tree, --staged, --range)', () => {
+    const content = `credits ${BAD_EMAIL}\n`;
+    const repo = makeExcepted(content);
+    assert.equal(scan(['--tree'], { cwd: repo }).status, 0);
+    git(repo, ['add', '-A']);
+    assert.equal(scan(['--staged'], { cwd: repo }).status, 0);
+    git(repo, ['commit', '-q', '-m', 'add']);
+    assert.equal(scan(['--range', `${'0'.repeat(40)}..HEAD`], { cwd: repo }).status, 0);
+  });
+
+  it('scans in full again when the hash differs', () => {
+    const repo = makeExcepted(`credits ${BAD_EMAIL}\n`, { hash: sha256('something else') });
+    assertFails(scan(['--tree'], { cwd: repo }), 'email');
+    git(repo, ['add', '-A']);
+    assertFails(scan(['--staged'], { cwd: repo }), 'email');
+  });
+
+  it('does not suppress after the file changes', () => {
+    const repo = makeExcepted(`credits ${BAD_EMAIL}\n`);
+    writeFileSync(join(repo, VENDOR), `credits ${BAD_EMAIL}\nmore\n`);
+    assertFails(scan(['--tree'], { cwd: repo }), 'email');
+  });
+
+  it('suppresses only the listed categories', () => {
+    const content = `credits ${BAD_EMAIL}\n/Users/${FAKE_NAME}/x\n`;
+    const repo = makeExcepted(content);
+    const result = scan(['--tree'], { cwd: repo });
+    assertFails(result, 'home-path');
+    assert.ok(!/\semail\n/.test(result.out));
+  });
+
+  it('never suppresses credentials, private patterns or local state', () => {
+    const content = `credits ${BAD_EMAIL}\ntoken ${fakeToken('ghp_', 36)}\nfake-secret-term\n`;
+    const repo = makeExcepted(content);
+    writeFileSync(join(repo, '.git', 'info', 'private-patterns'), 'fake-secret-term\n');
+    const result = scan(['--tree'], { cwd: repo });
+    assertFails(result, 'credential');
+    assertFails(result, 'private-pattern');
+    assert.ok(!/\semail\n/.test(result.out));
+  });
+
+  it('rejects categories that may not be suppressed', () => {
+    const repo = makeExcepted('x\n', { categories: ['credential'] });
+    assert.equal(scan(['--tree'], { cwd: repo }).status, 2);
+  });
+
+  it('errors on a stale entry and on malformed files', () => {
+    const repo = makeExcepted('x\n');
+    rmSync(join(repo, VENDOR));
+    const stale = scan(['--tree'], { cwd: repo });
+    assert.equal(stale.status, 2);
+    assert.match(stale.out, /stale/);
+    writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), '{not json');
+    assert.equal(scan(['--tree'], { cwd: repo }).status, 2);
+    writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), '{}');
+    assert.equal(scan(['--tree'], { cwd: repo }).status, 2);
+  });
+
+  it('scans the exceptions file itself', () => {
+    const repo = makeExcepted('x\n');
+    const entry = { path: VENDOR, sha256: sha256('x\n'), reason: `contact ${BAD_EMAIL}`, categories: ['email'] };
+    writeFileSync(join(repo, 'scripts', 'privacy-exceptions.json'), JSON.stringify([entry]));
+    assertFails(scan(['--tree'], { cwd: repo }), 'email');
   });
 });

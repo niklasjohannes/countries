@@ -67,6 +67,14 @@ Nothing personal (work email, employer name, home paths, credentials, local Clau
 - The `privacy` job in CI, which scans every commit in a PR (or push to `main`) and the whole tree.
 - Private patterns (work email, employer name) live in `.git/info/private-patterns`, never committed: one case-insensitive literal per line, `#` starts a comment. Without that file (as in CI) only the generic rules run.
 
+Vendored third-party files (fonts, map data) can carry their authors' emails or URLs, which the scanner reads even inside binary files. List such a file in `scripts/privacy-exceptions.json`, an array of entries:
+
+  ```json
+  { "path": "vendor/example/font.ttf", "sha256": "<64 hex chars>", "reason": "upstream credits", "categories": ["email"] }
+  ```
+
+  An entry applies only while the file's SHA-256 matches, so a changed file is scanned in full again. `categories` may only name `email` and `home-path`; `private-pattern`, `credential` and `local-state` always apply, and file names are always checked. The exceptions file is scanned like any other file, and an entry whose `path` no longer exists is an error (exit 2). It ships as `[]`.
+
 To check text before publishing it (an issue or PR body, say):
 
 ```bash

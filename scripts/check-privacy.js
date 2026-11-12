@@ -20,6 +20,7 @@
 // scanner cannot leak what it finds. Exit codes: 0 clean, 1 findings, 2 error.
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -87,6 +88,12 @@ const LOCAL_STATE_PATH_RES = [
 // GitHub skips push/PR workflows when a commit message contains one of these.
 const CI_SKIP_RE = /\[(?:skip ci|ci skip|no ci|skip actions|actions skip)\]|skip-checks:\s*true/i;
 
+// Vendored third-party files (fonts, map data) may carry their authors' emails.
+// Entries live in a committed file and apply only while the file's SHA-256
+// matches. Only these generic categories can ever be suppressed.
+const EXCEPTIONS_FILE = 'scripts/privacy-exceptions.json';
+const EXEMPTABLE_CATEGORIES = new Set(['email', 'home-path']);
+
 const ZERO_SHA_RE = /^0+$/;
 const MAX_BUFFER = 1024 * 1024 * 1024;
 
@@ -111,6 +118,83 @@ function git(args, input) {
   } catch {
     throw new Error(`git ${args[0]} failed`);
   }
+}
+
+/**
+ * Like `git`, but returns raw bytes.
+ *
+ * @param {string[]} args Arguments after `git`.
+ * @returns {Buffer|null} Standard output, or null when git fails (e.g. no such blob).
+ */
+function gitBuffer(args) {
+  try {
+    return execFileSync('git', args, {
+      maxBuffer: MAX_BUFFER,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** @type {Map<string, {sha256: string, categories: Set<string>}>} */
+let exceptions = new Map();
+
+/**
+ * Load and validate `scripts/privacy-exceptions.json`: an array of
+ * `{ path, sha256, reason, categories }`. Throws on a malformed entry or an
+ * entry whose path no longer exists. A missing file means no exceptions.
+ *
+ * @returns {void}
+ */
+function loadExceptions() {
+  const top = git(['rev-parse', '--show-toplevel']).trim();
+  const file = join(top, EXCEPTIONS_FILE);
+  if (!existsSync(file)) return;
+  let entries;
+  try {
+    entries = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    throw new Error(`${EXCEPTIONS_FILE} is not valid JSON`);
+  }
+  if (!Array.isArray(entries)) throw new Error(`${EXCEPTIONS_FILE} must be an array`);
+  const loaded = new Map();
+  entries.forEach((entry, index) => {
+    const at = `${EXCEPTIONS_FILE} entry ${index + 1}`;
+    if (entry === null || typeof entry !== 'object') throw new Error(`${at} must be an object`);
+    const { path, sha256, reason, categories } = entry;
+    if (typeof path !== 'string' || path === '') throw new Error(`${at}: \`path\` must be a string`);
+    if (typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(sha256)) {
+      throw new Error(`${at}: \`sha256\` must be 64 lowercase hex characters`);
+    }
+    if (typeof reason !== 'string' || reason.trim() === '') {
+      throw new Error(`${at}: \`reason\` must be a non-empty string`);
+    }
+    if (
+      !Array.isArray(categories) || categories.length === 0
+      || !categories.every((c) => EXEMPTABLE_CATEGORIES.has(c))
+    ) {
+      throw new Error(`${at}: \`categories\` must be a non-empty list of email / home-path`);
+    }
+    if (loaded.has(path)) throw new Error(`${at}: duplicate \`path\``);
+    if (!existsSync(join(top, path))) throw new Error(`${at}: \`path\` does not exist (stale entry)`);
+    loaded.set(path, { sha256, categories: new Set(categories) });
+  });
+  exceptions = loaded;
+}
+
+/**
+ * Categories to ignore for a file, given its exact content.
+ *
+ * @param {string} file Repo-relative path.
+ * @param {Buffer|null} content The file's bytes in the state being scanned.
+ * @returns {Set<string>|null} Suppressed categories, or null.
+ */
+function exemptionFor(file, content) {
+  const entry = exceptions.get(file);
+  if (!entry || content === null) return null;
+  const hash = createHash('sha256').update(content).digest('hex');
+  return hash === entry.sha256 ? entry.categories : null;
 }
 
 /**
@@ -256,12 +340,12 @@ function decodeContent(buffer) {
  * @param {string} text Multi-line text.
  * @param {string} file Path used for fixture rules.
  * @param {string} label Location label for output.
- * @param {Set<number>} [skipLines] 1-based line numbers to ignore.
+ * @param {Set<string>|null} [suppress] Categories to ignore (vendored exceptions).
  */
-function scanText(report, text, file, label, skipLines = new Set()) {
+function scanText(report, text, file, label, suppress = null) {
   text.split('\n').forEach((lineText, index) => {
-    if (skipLines.has(index + 1)) return;
     for (const category of categoriseLine(lineText, file)) {
+      if (suppress?.has(category)) continue;
       report.add(label, index + 1, category);
     }
   });
@@ -274,9 +358,11 @@ function scanText(report, text, file, label, skipLines = new Set()) {
  * @param {string} diff Diff text.
  * @param {string[]} names Touched paths, in diff order (from `--name-only -z`).
  * @param {string} [prefix] Prefix for location labels.
+ * @param {(file: string) => Buffer|null} [readBlob] Content of a file in the scanned state.
  */
-function scanDiff(report, diff, names, prefix = '') {
+function scanDiff(report, diff, names, prefix = '', readBlob = () => null) {
   let file = '';
+  let suppress = null;
   let fileIndex = 0;
   let oldLeft = 0;
   let newLeft = 0;
@@ -286,6 +372,7 @@ function scanDiff(report, diff, names, prefix = '') {
     if (oldLeft > 0 || newLeft > 0) {
       if (raw.startsWith('+')) {
         for (const category of categoriseLine(raw.slice(1).replace(/\0/g, ''), file)) {
+          if (suppress?.has(category)) continue;
           report.add(`${prefix}${printable(file)}`, newLine, category);
         }
         newLeft -= 1;
@@ -298,6 +385,7 @@ function scanDiff(report, diff, names, prefix = '') {
     if (raw.startsWith('diff --git ')) {
       file = names[fileIndex] ?? '';
       fileIndex += 1;
+      suppress = exceptions.has(file) ? exemptionFor(file, readBlob(file)) : null;
       if (file) scanPath(report, file, prefix);
       continue;
     }
@@ -325,7 +413,7 @@ const DIFF_ARGS = [
 function scanStaged(report) {
   const args = ['diff', '--cached', '--diff-filter=ACMRT'];
   const names = git([...args, '--name-only', '-z', '--no-renames']).split('\0').filter(Boolean);
-  scanDiff(report, git([...args, ...DIFF_ARGS]), names);
+  scanDiff(report, git([...args, ...DIFF_ARGS]), names, '', (file) => gitBuffer(['show', `:${file}`]));
 }
 
 /**
@@ -343,7 +431,7 @@ function scanTree(report) {
     } catch {
       continue; // listed but deleted from the working tree
     }
-    scanText(report, decodeContent(buffer), file, printable(file));
+    scanText(report, decodeContent(buffer), file, printable(file), exemptionFor(file, buffer));
   }
 }
 
@@ -379,7 +467,8 @@ function scanCommits(report, shas) {
     const names = git([...showArgs, '--name-only', '-z', '--no-renames', sha])
       .split('\0')
       .filter(Boolean);
-    scanDiff(report, git([...showArgs, ...DIFF_ARGS, sha]), names, `${short} `);
+    scanDiff(report, git([...showArgs, ...DIFF_ARGS, sha]), names, `${short} `, (file) =>
+      gitBuffer(['show', `${sha}:${file}`]));
   }
 }
 
@@ -502,6 +591,7 @@ function main(argv) {
   const value = argv[argv.indexOf(mode) + 1];
   const report = new Report();
   try {
+    if (['--staged', '--tree', '--range', '--new-commits'].includes(mode)) loadExceptions();
     if (mode === '--staged') scanStaged(report);
     else if (mode === '--tree') scanTree(report);
     else if (mode === '--identity') scanIdentity(report);
