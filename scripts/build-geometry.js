@@ -856,7 +856,14 @@ function orientation(a, b, c) {
   return value > 0 ? 1 : value < 0 ? -1 : 0;
 }
 
-/** True when segments a-b and c-d cross at a point that is not a shared endpoint. */
+/**
+ * True when segments a-b and c-d cross at a point that is not a shared endpoint.
+ *
+ * Known gap (issue 14, D3, owner-accepted won't-fix): two segments that share
+ * an endpoint and run collinearly on top of each other are not counted. Counting
+ * them makes the build fail on Lebanon/Syria, whose border overlaps like that on
+ * the integer grid even unsimplified; the overlap has no area and is invisible.
+ */
 function segmentsCross(a, b, c, d) {
   const same = (p, q) => p[0] === q[0] && p[1] === q[1];
   if (same(a, c) || same(a, d) || same(b, c) || same(b, d)) return false;

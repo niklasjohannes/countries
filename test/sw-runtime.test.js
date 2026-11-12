@@ -140,7 +140,7 @@ function createCaches(initialNames = []) {
 
 // Run sw.js in its own context. Returns the captured handlers, the fakes and
 // a call log (`skipWaiting` / `clients.claim`, in order).
-function loadWorker({ fetch = createFetch().fetch, caches = createCaches().caches } = {}) {
+function loadWorker({ fetch = createFetch().fetch, caches = createCaches().caches, windows = 1 } = {}) {
   const handlers = new Map();
   const calls = [];
   const sandbox = {
@@ -150,6 +150,7 @@ function loadWorker({ fetch = createFetch().fetch, caches = createCaches().cache
       calls.push('skipWaiting');
     },
     clients: {
+      matchAll: async () => Array.from({ length: windows }, () => ({})),
       claim: async () => {
         calls.push('claim');
       }
@@ -244,8 +245,8 @@ describe('sw.js install', () => {
 
 describe('sw.js message (SKIP_WAITING)', () => {
   // Dispatch a message event; resolves to whether `skipWaiting` was called.
-  async function send(data, { source, origin = '' } = {}) {
-    const worker = loadWorker();
+  async function send(data, { source, origin = '', windows = 1 } = {}) {
+    const worker = loadWorker({ windows });
     let pending = Promise.resolve();
     worker.handlers.get('message')({ data, source, origin, waitUntil: (value) => { pending = value; } });
     await pending;
@@ -256,6 +257,11 @@ describe('sw.js message (SKIP_WAITING)', () => {
   it('skips waiting for a same-origin client of the app', async () => {
     assert.equal(await send({ type: 'SKIP_WAITING' }, { source: own }), true);
     assert.equal(await send({ type: 'SKIP_WAITING' }, { source: own, origin: 'https://x.github.io' }), true);
+  });
+
+  it('waits while a second window of the app is open', async () => {
+    assert.equal(await send({ type: 'SKIP_WAITING' }, { source: own, windows: 2 }), false);
+    assert.equal(await send({ type: 'SKIP_WAITING' }, { source: own, windows: 0 }), false);
   });
 
   it('ignores other messages, other origins, other Pages projects and a missing source', async () => {

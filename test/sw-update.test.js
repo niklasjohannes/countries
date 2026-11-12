@@ -119,6 +119,16 @@ describe('createUpdateFlow: start', () => {
     assert.equal(state.reloads, 0);
   });
 
+  it('holds a controllerchange that fires while getRegistration is pending, then replays it', async () => {
+    const serviceWorker = fakeServiceWorker({ controller: CONTROLLER });
+    const { flow, state } = setup({ serviceWorker });
+    const started = flow.start();
+    serviceWorker.emit('controllerchange');
+    assert.equal(state.reloads, 0, 'not decided before the registration is read');
+    await started;
+    assert.equal(state.reloads, 1, 'replayed once ready');
+  });
+
   it('reloads a hard-reloaded page (active registration, no controller) at its takeover', async () => {
     const serviceWorker = fakeServiceWorker({ registration: { active: {} } });
     const { flow, state } = setup({ serviceWorker });
@@ -184,6 +194,15 @@ describe('createUpdateFlow: asking the waiting worker to take over', () => {
     third.state.view = { isOnHome: true, hasOpenDialog: false, isUserTap: false };
     third.state.idle();
     assert.equal(waiting3.messages.length, 1);
+  });
+
+  it('asks again when the page becomes visible, in case the worker declined (a second window was open)', async () => {
+    const { flow, doc } = await started();
+    const waiting = fakeWorker();
+    flow.watch(fakeRegistration({ waiting }));
+    assert.equal(waiting.messages.length, 1);
+    doc.emit('visibilitychange');
+    assert.equal(waiting.messages.length, 2);
   });
 
   it('follows a worker that finishes installing under a controlled page', async () => {

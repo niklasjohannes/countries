@@ -58,6 +58,9 @@ export function createUpdateFlow({ serviceWorker, getView, reload, document: doc
   let state = createReloadState(false);
   let waiting = null;
   let hasAsked = false;
+  // A `controllerchange` before `start` has read the registration is held and replayed.
+  let isReady = false;
+  let isChangePending = false;
 
   function handle(event) {
     const decision = decideReload(state, event, getView());
@@ -95,13 +98,26 @@ export function createUpdateFlow({ serviceWorker, getView, reload, document: doc
   return {
     async start() {
       // First, so a takeover that happens while `getRegistration` is pending is seen.
-      serviceWorker.addEventListener('controllerchange', () => handle('controllerchange'));
+      serviceWorker.addEventListener('controllerchange', () => {
+        if (isReady) {
+          handle('controllerchange');
+        } else {
+          isChangePending = true;
+        }
+      });
       const hadController = await getHadController(serviceWorker);
-      state = Object.freeze({ ...state, hadController: state.hadController || hadController });
+      state = Object.freeze({ ...state, hadController });
+      isReady = true;
+      if (isChangePending) {
+        isChangePending = false;
+        handle('controllerchange');
+      }
       // `close` does not bubble, so listen in the capture phase.
       doc.addEventListener('close', retry, { capture: true });
       doc.addEventListener('visibilitychange', () => {
         if (doc.visibilityState === 'visible') {
+          // The worker may have declined (a second window was open): ask again.
+          hasAsked = false;
           retry();
         }
       });

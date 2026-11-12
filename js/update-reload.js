@@ -10,13 +10,16 @@
 //   - the first `controllerchange` on a page that had no worker and no
 //     registration (first visit) is not an update: no reload. A page that
 //     loaded with a registration but no controller (a hard reload) is
-//     running old JS already, so js/app.js counts it as having a worker;
+//     running old JS already, so js/sw-update.js counts it as having a worker;
 //   - after an update, reload at once only on home with no sheet
 //     (`<dialog>`) open and no import or export running;
-//   - otherwise wait: retry when a sheet closes or the work settles;
-//   - a navigation to home reloads only when the user tapped to get there,
-//     never for a programmatic `navigate('home')` (for example after an
-//     import has written its data);
+//   - otherwise wait; js/sw-update.js retries (as `dialogclose`) on every home
+//     mount, whenever the page becomes visible, when a sheet closes and when
+//     busy work settles, so a held-back reload is not forgotten;
+//   - `navigatehome` (a navigation to home about to happen) reloads instead of
+//     navigating only when the user tapped to get there, never for a
+//     programmatic `navigate('home')` (for example after an import has
+//     written its data);
 //   - reload at most once.
 
 /** Events `decideReload` understands. */
