@@ -36,7 +36,7 @@ To check install and offline behaviour exactly as GitHub Pages will serve them, 
 /usr/bin/python3 scripts/dev_server.py 8005 --base /countries/
 ```
 
-then open <http://127.0.0.1:8005/countries/>. The manifest's `start_url` and `scope` and the service worker's scope then all resolve to `/countries/`, `/countries` redirects to `/countries/`, and anything outside the prefix is a 404.
+Installs and offline mode only work under `--base /countries/`: the manifest and the service worker are scoped to that path, so serving from `/` does not match the deployed site. Then open <http://127.0.0.1:8005/countries/>. The manifest's `start_url` and `scope` and the service worker's scope then all resolve to `/countries/`, `/countries` redirects to `/countries/`, and anything outside the prefix is a 404.
 
 ### Local preview (Claude Code desktop)
 

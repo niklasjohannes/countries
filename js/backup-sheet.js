@@ -16,6 +16,7 @@
 
 import { BACKUP_ERRORS, MAX_BACKUP_LENGTH, getBackupFilename, parseBackup, serializeBackup } from './backup.js';
 import { loadStates, localToday, saveStates } from './storage.js';
+import { beginBusy } from './busy.js';
 import { el } from './ui.js';
 
 const BACKUP_MIME_TYPE = 'application/json';
@@ -198,6 +199,7 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
     }
     isExporting = true;
     setExportDisabled(true);
+    const endBusy = beginBusy();
     try {
       const today = localToday();
       const states = loadStates(today);
@@ -224,6 +226,7 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
     } finally {
       isExporting = false;
       setExportDisabled(false);
+      endBusy();
     }
   }
 
@@ -239,11 +242,16 @@ export function createBackupSheet({ knownCodes, onRestored, signal } = {}) {
       return;
     }
     let contents;
+    // Held until the read settles, so a service-worker reload cannot land
+    // between picking the file and showing the confirm.
+    const endBusy = beginBusy();
     try {
       contents = await file.text();
     } catch {
       setStatus(READ_ERROR);
       return;
+    } finally {
+      endBusy();
     }
     if (signal.aborted || !dialog.open) {
       return;
