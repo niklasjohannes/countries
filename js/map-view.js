@@ -572,7 +572,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
 
       state = {
         scene, frame, meta, geometry, paths, byCode, hitEntries,
-        interactive, target, focus: null, picked: null, revealed: false, labels: [], inset: null, candidates: null, markers: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
+        interactive, target, focus: null, picked: null, revealed: false, revealedTarget: null, labels: [], inset: null, candidates: null, markers: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
       };
       svg.append(state.layer);
       if (target !== null) {
@@ -606,9 +606,14 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         throw new TypeError('`names` must be an object mapping codes to names.');
       }
       if (state.revealed) {
+        // Revealing the same target again is harmless; another one is a bug in the caller.
+        if (target !== state.revealedTarget) {
+          throw new RangeError('`target` must be the target already revealed on this render.');
+        }
         return;
       }
       state.revealed = true;
+      state.revealedTarget = target;
       state.interactive = false;
       clearCandidates();
       highlight(target);

@@ -311,7 +311,15 @@ describe('createMapView render', () => {
     const classes = view.svg.children.map((n) => n.attrs.class);
     assert.ok(classes.indexOf('map-inset-layer') < classes.indexOf('map-label-layer'));
     const [inset] = byClass(view.svg, 'map-inset');
-    assert.ok(inset.children.length < planScene(eastern).land.length + 1);
+    // Exactly the land whose bbox meets the inset's source box (plus the context
+    // path), and strictly fewer than the whole scene: a filter that kept
+    // everything would fail this.
+    const scene = planScene(eastern);
+    const source = inset.attrs.viewBox.split(' ').map(Number);
+    const sourceBox = [source[0], source[1], source[0] + source[2], source[1] + source[3]];
+    const expected = scene.land.filter((item) => boxesIntersect(item.bbox, sourceBox));
+    assert.ok(expected.length >= 1 && expected.length < scene.land.length, 'the fixture must have land inside and outside the source box');
+    assert.deepEqual(byClass(inset, 'map-land').map((n) => n.attrs.d), expected.map((item) => item.d));
     assert.ok(byClass(inset, 'map-context').length <= 1);
   });
 
@@ -610,6 +618,14 @@ describe('candidates of an ambiguous tap', () => {
     assert.equal(byClass(inset, 'map-target').length, 1);
     assert.equal(byClass(inset, 'map-candidate').length, 0);
     assert.equal(byClass(inset, 'map-candidate-marker').length, 0);
+  });
+
+  it('rejects a second reveal with a different target, and ignores one with the same target', () => {
+    const view = makeView();
+    view.render({ ...baseInput });
+    view.reveal({ target: 'za', correct: true, names: { za: 'South Africa' } });
+    assert.doesNotThrow(() => view.reveal({ target: 'za', correct: true, names: { za: 'South Africa' } }));
+    assert.throws(() => view.reveal({ target: 'ls', correct: true, names: { ls: 'Lesotho' } }), /already revealed/);
   });
 
   it('keeps the ring marker and inset of a small target through the reveal', () => {

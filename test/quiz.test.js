@@ -151,12 +151,11 @@ describe('pickDistractors on the countries fixture', () => {
     }
   });
 
-  it('prefers neighbours: Togo always gets Benin or Ghana', () => {
+  it('prefers neighbours: Togo has three neighbours, so they are exactly its three distractors', () => {
     const rng = createRng(20);
     assert.deepEqual(neighboursOf('tg'), ['bf', 'bj', 'gh']);
     for (let round = 0; round < 500; round += 1) {
-      const distractors = pick('tg', rng);
-      assert.ok(distractors.includes('bj') || distractors.includes('gh'), `got ${distractors}`);
+      assert.deepEqual([...pick('tg', rng)].sort(), ['bf', 'bj', 'gh']);
     }
   });
 
