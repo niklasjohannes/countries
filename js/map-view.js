@@ -35,7 +35,7 @@
 // this module does not. Call `relayout()` after attaching `view.element` to
 // the document, as a fallback for when `ResizeObserver` has not fired yet.
 
-import { MARKER_MIN_RADIUS_PX, computeInset, getPxPerUnit, hitTest, ringsToPathData } from './map.js';
+import { MARKER_MIN_RADIUS_PX, computeInset, getPxPerUnit, hitTest, largestRingBbox, ringsToPathData } from './map.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -49,6 +49,14 @@ export const LABEL_HALO_PX = 3;
 
 /** Size of the candidate number markers, in CSS px. */
 export const CANDIDATE_FONT_PX = 18;
+
+/**
+ * A target whose largest ring renders under this many CSS px on both sides gets
+ * a ring marker and an inset even when `map-meta.json` does not flag it small
+ * (the meta is computed for a typical phone viewport; this is the safety net
+ * for the real one).
+ */
+export const TINY_TARGET_PX = 10;
 
 /** Generic label of the question region; never names the country. */
 export const REGION_LABEL = 'Map question';
@@ -249,6 +257,10 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     }
     const pxPerUnit = getPxPerUnit(state.frame, viewport);
 
+    // The target may only be known to be tiny now that the size is known.
+    if (state.inset === null && state.focus !== null) {
+      addInset(state.focus);
+    }
     if (state.inset !== null) {
       const { entry, marker, box, insetSvg } = state.inset;
       const layout = computeInset(entry, state.frame, viewport);
@@ -284,11 +296,23 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     }
   }
 
+  // True when the entry's largest ring is under TINY_TARGET_PX on both sides
+  // at the current size (false while the size is unknown).
+  function isTiny(item) {
+    const viewport = viewportPx();
+    if (viewport === null) {
+      return false;
+    }
+    const pxPerUnit = getPxPerUnit(state.frame, viewport);
+    const [x0, y0, x1, y1] = largestRingBbox(item.rings);
+    return (x1 - x0) * pxPerUnit < TINY_TARGET_PX && (y1 - y0) * pxPerUnit < TINY_TARGET_PX;
+  }
+
   // Marker and inset for the highlighted target when it is small at this
   // frame. The inset reuses the path data already computed for the scene.
   function addInset(code, kind = 'target') {
     const item = state.byCode.get(code);
-    if (item === undefined || !item.small || state.inset !== null) {
+    if (item === undefined || state.inset !== null || !(item.small || isTiny(item))) {
       return;
     }
     const layer = make('g', { class: 'map-inset-layer' });
@@ -385,6 +409,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     const path = state.paths.get(code);
     if (path !== undefined) {
       path.setAttribute('class', 'map-land map-target');
+      state.focus = code;
       addInset(code);
     }
   }
@@ -455,7 +480,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
 
       state = {
         scene, frame, meta, geometry, paths, byCode, hitEntries,
-        interactive, target, picked: null, revealed: false, labels: [], inset: null, candidates: null, markers: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
+        interactive, target, focus: null, picked: null, revealed: false, labels: [], inset: null, candidates: null, markers: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
       };
       svg.append(state.layer);
       if (target !== null) {

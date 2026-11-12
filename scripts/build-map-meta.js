@@ -26,8 +26,10 @@
 //   box before padding.
 //
 // Small entries
-//   `small` is true when the entry's bbox, at its sub-region frame rendered
-//   SMALL_FRAME_WIDTH_PX CSS px wide, is under SMALL_LIMIT_PX in both width and
+//   `small` is true when the bbox of the entry's largest ring (not the union
+//   bbox, which over-states an archipelago), at its sub-region frame drawn into
+//   the phone-shaped viewport SMALL_VIEWPORT_PX (scale from `getPxPerUnit`, so
+//   tall frames are height-limited), is under SMALL_LIMIT_PX in both width and
 //   height. `tappable` is `!small`.
 //   `smallInContinent` (owner decision, issue 6) is the same rule at the
 //   entry's continent frame; the renderer shows a marker and inset when an entry
@@ -40,9 +42,9 @@ import { fileURLToPath } from 'node:url';
 
 import { buildGeometryFull } from './build-geometry.js';
 import { FRAME_OVERRIDES } from './frame-overrides.js';
-import { FRAME_PADDING, SMALL_FRAME_WIDTH_PX, SMALL_LIMIT_PX, computeFrame, computeFrames, isSmall, projectLonLatBox } from './frames.js';
+import { FRAME_PADDING, SMALL_VIEWPORT_PX, SMALL_LIMIT_PX, computeFrame, computeFrames, isSmall, largestRingBbox, projectLonLatBox } from './frames.js';
 
-export { FRAME_PADDING, SMALL_FRAME_WIDTH_PX, SMALL_LIMIT_PX, computeFrame, computeFrames, isSmall, projectLonLatBox };
+export { FRAME_PADDING, SMALL_VIEWPORT_PX, SMALL_LIMIT_PX, computeFrame, computeFrames, isSmall, largestRingBbox, projectLonLatBox };
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const COUNTRIES_PATH = 'data/countries.json';
@@ -81,7 +83,7 @@ export function buildMapMeta(root = ROOT) {
 
   const entries = {};
   for (const country of countries) {
-    const bbox = files[country.continent].entries[country.code].bbox;
+    const bbox = largestRingBbox(files[country.continent].entries[country.code].rings);
     const small = isSmall(bbox, frames[country.subregion]);
     if (!Array.isArray(neighbours[country.code])) throw new RangeError(`\`${country.code}\` has no neighbours entry.`);
     entries[country.code] = {

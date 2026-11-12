@@ -221,6 +221,35 @@ export function ringsToPathData(rings) {
 }
 
 /**
+ * Bounding box of the entry's largest ring (by bbox area). An entry's union
+ * bbox over-states a scattered archipelago: what the user has to hit is the
+ * biggest piece.
+ * @param {number[][][]} rings closed rings of `[x, y]` integer points
+ * @returns {number[]} [x0, y0, x1, y1]
+ */
+export function largestRingBbox(rings) {
+  if (!Array.isArray(rings) || rings.length === 0) throw new TypeError('`rings` must be a non-empty array of rings.');
+  let best = null;
+  let bestArea = -1;
+  for (const ring of rings) {
+    if (!Array.isArray(ring) || ring.length === 0) throw new TypeError('`rings` must contain non-empty rings.');
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const [x, y] of ring) {
+      box[0] = Math.min(box[0], x);
+      box[1] = Math.min(box[1], y);
+      box[2] = Math.max(box[2], x);
+      box[3] = Math.max(box[3], y);
+    }
+    const area = (box[2] - box[0]) * (box[3] - box[1]);
+    if (area > bestArea) {
+      best = box;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+/**
  * CSS px per frame unit for a frame drawn into a `viewportPx` box with
  * `preserveAspectRatio="xMidYMid meet"`: the smaller of the two axis scales.
  *

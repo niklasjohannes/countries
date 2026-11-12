@@ -6,13 +6,15 @@ import { resolve } from 'node:path';
 
 import {
   FRAME_PADDING,
-  SMALL_FRAME_WIDTH_PX,
   SMALL_LIMIT_PX,
+  SMALL_VIEWPORT_PX,
   buildMapMeta,
   computeFrame,
   isSmall,
+  largestRingBbox,
   projectLonLatBox
 } from '../scripts/build-map-meta.js';
+import { getPxPerUnit } from '../js/map.js';
 import { FRAME_OVERRIDES } from '../scripts/frame-overrides.js';
 import { escapeXml, pathOf } from '../scripts/render-contact-sheet.js';
 
@@ -157,18 +159,32 @@ describe('frames', () => {
 });
 
 describe('small entries', () => {
-  it('follow the contract rule: bbox at the sub-region frame, 375 px wide, under 12 x 12 px', () => {
+  // Independent of the generator: rebuilds the phone viewport from the contract numbers.
+  const phoneSideOf = (code, continent, frame) => {
+    const [x0, y0, x1, y1] = largestRingBbox(files[continent].entries[code].rings);
+    const pxPerUnit = getPxPerUnit(frame, { width: 331, height: 400 });
+    return [(x1 - x0) * pxPerUnit, (y1 - y0) * pxPerUnit];
+  };
+
+  it('follow the contract rule: largest ring at the sub-region frame on a phone viewport, under 12 x 12 px', () => {
     for (const { code, continent, subregion } of countries) {
-      const bbox = files[continent].entries[code].bbox;
-      const frame = frames[subregion];
-      const pxPerUnit = 375 / (frame[2] - frame[0]);
-      const small = (bbox[2] - bbox[0]) * pxPerUnit < 12 && (bbox[3] - bbox[1]) * pxPerUnit < 12;
-      assert.equal(entries[code].small, small, code);
+      const [w, h] = phoneSideOf(code, continent, frames[subregion]);
+      assert.equal(entries[code].small, w < 12 && h < 12, code);
+    }
+  });
+
+  it('gives every non-small entry a ring of at least 12 px on a phone', () => {
+    for (const { code, continent, subregion } of countries) {
+      if (entries[code].small) continue;
+      assert.ok(Math.max(...phoneSideOf(code, continent, frames[subregion])) >= 12, `${code} is tappable but renders as a speck`);
     }
   });
 
   it('includes microstates and islands, and not large or archipelago countries', () => {
-    for (const code of ['va', 'mc', 'sm', 'li', 'mt', 'bh', 'sg', 'nr', 'tv']) assert.equal(entries[code].small, true, code);
+    for (const code of ['va', 'mc', 'sm', 'li', 'mt', 'bh', 'sg', 'nr', 'tv', 'ps', 'ki', 'fm', 'mh', 'pw', 'to', 'pf', 'cv', 'st', 'km']) {
+      assert.equal(entries[code].small, true, code);
+      assert.equal(entries[code].tappable, false, code);
+    }
     for (const code of ['fr', 'br', 'au', 'is', 'jp', 'cu', 'ru', 'nz']) assert.equal(entries[code].small, false, code);
   });
 
@@ -182,10 +198,9 @@ describe('small entries', () => {
 describe('small entries in the continent frame', () => {
   it('follow the same rule at the continent frame', () => {
     for (const { code, continent } of countries) {
-      const bbox = files[continent].entries[code].bbox;
-      const frame = frames[continent];
-      const pxPerUnit = 375 / (frame[2] - frame[0]);
-      const small = (bbox[2] - bbox[0]) * pxPerUnit < 12 && (bbox[3] - bbox[1]) * pxPerUnit < 12;
+      const [x0, y0, x1, y1] = largestRingBbox(files[continent].entries[code].rings);
+      const pxPerUnit = getPxPerUnit(frames[continent], { width: 331, height: 400 });
+      const small = (x1 - x0) * pxPerUnit < 12 && (y1 - y0) * pxPerUnit < 12;
       assert.equal(entries[code].smallInContinent, small, code);
     }
   });
@@ -230,15 +245,29 @@ describe('frame helpers', () => {
     assert.throws(() => projectLonLatBox(file, [10, 0, 5, 1]), /west < east/);
     assert.throws(() => projectLonLatBox(file, [0, 0, 1]), /`box`/);
     assert.throws(() => isSmall([0, 0, 1, 1], [0, 0, 0, 5]), /positive width/);
+    assert.throws(() => largestRingBbox([]), /non-empty/);
   });
 
   it('applies the 12 px rule on both sides and strictly', () => {
-    const frame = [0, 0, 3750, 3750]; // 10 units per px
-    assert.equal(isSmall([0, 0, 119, 119], frame), true);
-    assert.equal(isSmall([0, 0, 120, 10], frame), false);
-    assert.equal(isSmall([0, 0, 10, 120], frame), false);
-    assert.equal(SMALL_FRAME_WIDTH_PX, 375);
+    const viewport = { width: 400, height: 400 };
+    const frame = [0, 0, 4000, 4000]; // 10 units per px
+    assert.equal(isSmall([0, 0, 119, 119], frame, viewport), true);
+    assert.equal(isSmall([0, 0, 120, 10], frame, viewport), false);
+    assert.equal(isSmall([0, 0, 10, 120], frame, viewport), false);
     assert.equal(SMALL_LIMIT_PX, 12);
+  });
+
+  it('measures a tall frame at its height-limited scale (phone viewport)', () => {
+    // 100 wide x 1000 tall frame: the width alone would give 3.31 px / unit, the height 0.4.
+    const frame = [0, 0, 100, 1000];
+    assert.equal(getPxPerUnit(frame, SMALL_VIEWPORT_PX), SMALL_VIEWPORT_PX.height / 1000);
+    assert.equal(isSmall([0, 0, 20, 20], frame), true); // 8 px, not 66 px
+    assert.equal(isSmall([0, 0, 40, 5], frame), false); // 16 px wide
+  });
+
+  it('uses the largest ring, not the union bbox', () => {
+    const rings = [[[0, 0], [10, 0], [10, 10], [0, 0]], [[1000, 1000], [1100, 1000], [1100, 1100], [1000, 1000]]];
+    assert.deepEqual(largestRingBbox(rings), [1000, 1000, 1100, 1100]);
   });
 });
 
