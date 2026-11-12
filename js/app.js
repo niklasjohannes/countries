@@ -41,7 +41,20 @@
 //   js/views/practice.js  css/practice.css  issue 10
 //   js/views/test.js      css/test.css      issue 11 (also results.js)
 //
-// The service worker (issue 12) is not registered here yet.
+// ---- Service worker ----
+//
+// `sw.js` precaches the whole app and calls `skipWaiting()`, so a new deploy
+// takes over an open page at once (`controllerchange`). This page's JS is
+// then the old version while assets come from the new cache. The page
+// reloads to pick up the new JS, but only where nothing is lost: at once if
+// home is showing (and no sheet is open on it), otherwise the next time
+// anything navigates to home. A round or test is never interrupted.
+//
+// Browsers look for a new `sw.js` on navigation. An installed iOS app is
+// usually resumed from the background instead, with no navigation, so the
+// page also asks for an update check whenever it becomes visible again, at
+// most once per `UPDATE_CHECK_INTERVAL_MS`. `updateViaCache: 'none'` keeps
+// the HTTP cache out of that check.
 
 import * as home from './views/home.js';
 import * as practice from './views/practice.js';
@@ -49,14 +62,20 @@ import * as results from './views/results.js';
 import * as test from './views/test.js';
 import { watchResume } from './resume.js';
 import { el } from './ui.js';
+import { createReloadState, decideReload } from './update-reload.js';
 
 const DATA_URL = './data/countries.json';
 
 const VIEWS = Object.freeze({ home, practice, test, results });
 
+/** Least time (ms) between two update checks on resume. */
+export const UPDATE_CHECK_INTERVAL_MS = 15 * 60_000;
+
 let countries = null;
 let current = null;
 let isTransitioning = false;
+// See "Service worker" above; the rules are in js/update-reload.js.
+let reloadState = createReloadState(false);
 
 function deepFreeze(value) {
   if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
@@ -117,6 +136,10 @@ function navigate(name, params = {}) {
     queueMicrotask(() => navigate(name, params));
     return;
   }
+  // An update is waiting: reload instead of showing home.
+  if (name === 'home' && applyReloadEvent('navigatehome')) {
+    return;
+  }
   isTransitioning = true;
   try {
     transition(name, params);
@@ -156,6 +179,52 @@ function transition(name, params) {
   }
 }
 
+// Feed `event` to js/update-reload.js and reload if it says so. Returns
+// whether a reload has started (now or before).
+function applyReloadEvent(event) {
+  const isOnHome = current !== null && current.name === 'home';
+  const hasOpenDialog = current !== null && current.container.querySelector('dialog[open]') !== null;
+  const decision = decideReload(reloadState, event, { isOnHome, hasOpenDialog });
+  reloadState = decision.state;
+  if (decision.reload) {
+    location.reload();
+  }
+  return reloadState.isReloading;
+}
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) {
+    return;
+  }
+  // The first worker claiming a page that had none (first visit) is not an
+  // update: nothing to reload.
+  reloadState = createReloadState(navigator.serviceWorker.controller !== null);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    applyReloadEvent('controllerchange');
+  });
+  // A sheet open on home deferred the reload: retry when it closes. `close`
+  // does not bubble, so listen in the capture phase.
+  document.addEventListener('close', () => {
+    applyReloadEvent('dialogclose');
+  }, { capture: true });
+  // Registering checks for an update itself, so the clock starts now.
+  let lastCheckAt = Date.now();
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((registration) => {
+    document.addEventListener('visibilitychange', () => {
+      const isDue = Date.now() - lastCheckAt >= UPDATE_CHECK_INTERVAL_MS;
+      if (document.visibilityState !== 'visible' || !isDue || navigator.onLine === false) {
+        return;
+      }
+      lastCheckAt = Date.now();
+      // Fails when offline or the server is down; the next resume retries.
+      registration.update().catch(() => {});
+    });
+  }, (error) => {
+    // The app still works online without it.
+    console.warn('Service worker registration failed; offline use is unavailable.', error);
+  });
+}
+
 async function start() {
   // Before home first mounts, so its resume listeners run after these.
   watchResume();
@@ -169,3 +238,10 @@ async function start() {
 }
 
 start();
+
+// After the page has loaded, so precaching does not compete with first paint.
+if (document.readyState === 'complete') {
+  registerServiceWorker();
+} else {
+  window.addEventListener('load', registerServiceWorker, { once: true });
+}
