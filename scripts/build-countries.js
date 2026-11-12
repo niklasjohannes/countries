@@ -7,7 +7,8 @@
 // The output is deterministic, so `test/countries.test.js` can regenerate it
 // and compare byte for byte.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -24,6 +25,7 @@ import {
 } from './country-overrides.js';
 
 const OUTPUT_PATH = fileURLToPath(new URL('../data/countries.json', import.meta.url));
+const QUIZZED_TOTAL = 206;
 const CODE_PATTERN = /^[a-z]{2}$/;
 
 /**
@@ -104,6 +106,20 @@ export function buildCountries() {
     });
   }
 
+  const byCode = new Map(countries.map((country) => [country.code, country]));
+  const quizzedCount = countries.filter((country) => country.quizzed).length;
+  if (quizzedCount !== QUIZZED_TOTAL) {
+    throw new RangeError(`Expected ${QUIZZED_TOTAL} quizzed entries, got ${quizzedCount}.`);
+  }
+  for (const country of countries) {
+    if (quizzedTerritories.has(country.code) && country.sovereign) {
+      throw new RangeError(`Quizzed territory \`${country.code}\` must not be sovereign.`);
+    }
+    if (country.parentCode !== null && !byCode.get(country.parentCode).sovereign) {
+      throw new RangeError(`Parent \`${country.parentCode}\` of \`${country.code}\` must be sovereign.`);
+    }
+  }
+
   for (const code of subregionOf.keys()) {
     if (!Object.hasOwn(ENTRIES, code)) {
       throw new RangeError(`\`${code}\` is in the sub-region table but is not an entry.`);
@@ -142,14 +158,29 @@ export function renderCountries() {
   return serialiseCountries(buildCountries());
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+/**
+ * True when this module is the entry point, also through a symlink or when the
+ * script was started without its `.js` extension.
+ * @returns {boolean}
+ */
+function isEntryPoint() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
   const text = renderCountries();
   if (process.argv.includes('--check')) {
     let current = '';
     try {
       current = readFileSync(OUTPUT_PATH, 'utf8');
-    } catch {
-      // A missing file counts as out of date.
+    } catch (error) {
+      // A missing file counts as out of date; anything else is a real failure.
+      if (error.code !== 'ENOENT') throw error;
     }
     if (current !== text) {
       console.error('data/countries.json is out of date: run `node scripts/build-countries.js`.');

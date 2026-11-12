@@ -8,7 +8,7 @@ import {
   renderCountries,
   serialiseCountries
 } from '../scripts/build-countries.js';
-import { M49_SUBREGIONS, SUBREGIONS } from '../scripts/country-overrides.js';
+import { M49_SUBREGIONS, SOURCE, SUBREGIONS } from '../scripts/country-overrides.js';
 
 const FILE_URL = new URL('../data/countries.json', import.meta.url);
 const text = readFileSync(FILE_URL, 'utf8');
@@ -34,6 +34,8 @@ describe('quizzed deck', () => {
     const extras = ['va', 'ps', 'xk', 'tw'];
     const territories = ['gl', 'eh', 'gf', 'pr', 'nc', 'fk', 'pf', 'sj', 'hk'];
     // `sovereign` is "UN member or observer": 193 members + va + ps.
+    assert.equal(byCode.get('va').sovereign, true);
+    assert.equal(byCode.get('ps').sovereign, true);
     const sovereign = quizzed.filter((country) => country.sovereign);
     assert.equal(sovereign.length - 2, 193);
     assert.deepEqual(
@@ -92,6 +94,22 @@ describe('continents and sub-regions', () => {
   });
 });
 
+describe('transcontinental placements', () => {
+  it('matches meta.policy.transcontinental to the derived continent and sub-region', () => {
+    for (const [code, text] of Object.entries(data.meta.policy.transcontinental)) {
+      const [continent, rest] = [text.split(' ')[0], text.match(/\((.*?)\)/)[1]];
+      const wanted = rest
+        .replace(/^M49 /, '')
+        .replace(/^not in M49; placed by geography, /, '')
+        .replace(/,.*$/, '')
+        .toLowerCase()
+        .replace(/ /g, '-');
+      assert.equal(byCode.get(code).continent, continent, `${code} continent`);
+      assert.equal(byCode.get(code).subregion, wanted, `${code} sub-region`);
+    }
+  });
+});
+
 describe('references and shape', () => {
   it('resolves every parentCode', () => {
     for (const country of data.countries) {
@@ -132,7 +150,8 @@ describe('references and shape', () => {
   });
 
   it('has meta with source, policy and excluded', () => {
-    assert.equal(data.meta.source.accessed, '2026-11-12');
+    assert.equal(data.meta.source.accessed, SOURCE.accessed);
+    assert.match(SOURCE.accessed, /^\d{4}-\d{2}-\d{2}$/);
     assert.match(data.meta.source.url, /^https:\/\/unstats\.un\.org\//);
     assert.ok(data.meta.excluded.aq);
     assert.ok(!byCode.has('aq'));

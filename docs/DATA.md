@@ -120,4 +120,4 @@ node scripts/build-countries.js
 node --test
 ```
 
-The regeneration test fails if `data/countries.json` isn't byte for byte what the generator produces, so a forgotten regeneration can't be committed. `node scripts/build-countries.js --check` does the same check from the command line. The generator refuses to write if a code has no sub-region, a `parentCode` doesn't resolve, or a code is placed in two sub-regions.
+The regeneration test fails if `data/countries.json` isn't byte for byte what the generator produces, so a forgotten regeneration can't be committed. `node scripts/build-countries.js --check` does the same check from the command line. The generator refuses to write if a code has no sub-region, a `parentCode` doesn't resolve to a sovereign entry, a code is placed in two sub-regions, a quizzed territory is sovereign, or the quizzed total isn't 206.
