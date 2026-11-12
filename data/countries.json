@@ -62,6 +62,7 @@
       "sovereignty": "`sovereign` is true iff the entry is a UN member state or a UN non-member observer state (ps, va). Everything else is false, including Kosovo and Taiwan. No judgement about recognition is made beyond that rule (same rule as the flags app).",
       "parentCode": "`parentCode` is the lowercase code of the single UN-member state that de facto administers a dependency or territory (for Cook Islands and Niue: the state they are in free association with). It is null for sovereign entries and for entries whose own status is disputed with no single administering state (tw, eh, xk). A sovereignty claim by another state does not change `parentCode`. The field records administration, not legitimacy.",
       "naming": "`name` is the common English short name, without political qualifiers, with diacritics kept (e.g. Côte d'Ivoire, Türkiye). `aliases` are former, long-form or colloquial English names used only for typing-mode search; they are not endorsements. An alias that is the shared bare name of two entries (\"Korea\" for kp/kr, \"Congo\" for cd/cg) is given to neither.",
+      "bordersRule": "Where there is a clear UN position against the administering state (Crimea, occupied Ukraine, Golan Heights, Western Sahara), the recognised state gets the land. Otherwise the administered line is used (Aksai Chin, Arunachal Pradesh, the Kashmir line of control, Siachen and the remaining disputed areas below).",
       "borders": {
         "crimea": "Part of Ukraine (ua). No separate entry.",
         "northern-cyprus": "Part of Cyprus (cy). No separate entry.",
@@ -79,7 +80,15 @@
         "bir-tawil": "Part of Sudan (sd), south of the 22N line.",
         "akrotiri-dhekelia": "Merged into Cyprus (cy): UK sovereign base areas too small to draw separately.",
         "nagorno-karabakh": "Part of Azerbaijan (az).",
-        "kosovo": "Its own entry (xk): quizzed, non-sovereign, parentCode null, southern-europe."
+        "kosovo": "Its own entry (xk): quizzed, non-sovereign, parentCode null, southern-europe.",
+        "siachen-glacier": "Part of India (in): the administered line, as with the Kashmir line of control.",
+        "southern-kurils": "Part of Russia (ru): the administered line. Claimed by Japan.",
+        "abyei": "Part of Sudan (sd): the administered line, as Natural Earth draws it. Claimed by South Sudan.",
+        "ilemi-triangle": "Part of Kenya (ke): the administered line. Claimed by South Sudan.",
+        "suriname-headwaters": "Lawa Headwaters part of French Guiana (gf), Courantyne Headwaters part of Guyana (gy): the administered line. Both claimed by Suriname.",
+        "junagadh-manavadar": "Part of India (in): the administered line. Claimed by Pakistan.",
+        "india-china-minor-sectors": "Demchok, Tirpani, Bara Hotii and Samdu valleys part of India (in): the administered line. Claimed by China.",
+        "sabah": "Part of Malaysia (my): the administered line. Claimed by the Philippines."
       },
       "contested": {
         "tw": "Taiwan: not a UN member or observer -> sovereign false. Status disputed, no single administering UN-member state -> parentCode null.",

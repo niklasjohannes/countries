@@ -70,7 +70,7 @@ The context-only entries are **the remaining ISO 3166-1 territories that have an
 
 ## Border policy table (PLAN decision 15)
 
-**Rule: internationally recognised borders.** The first nine rows are the cases decision 15 names; the next eight were ruled on by the owner for PR 18. One case per row. "Entry" says which `countries.json` entry owns the land. **Issue 5 applies these rows when it builds the geometry.**
+**Rule: internationally recognised borders.** Where there is a clear UN position against the administering state (Crimea, occupied Ukraine, the Golan Heights, Western Sahara), the recognised state gets the land. Otherwise the administered line is used (Aksai Chin, Arunachal Pradesh, the Kashmir line of control, and the last eight rows). The first nine rows are the cases decision 15 names; the next eight were ruled on by the owner for PR 18; the last eight are the areas of Natural Earth's breakaway layer the table did not name, ruled on by the owner for PR 21. One case per row. "Entry" says which `countries.json` entry owns the land. **Issue 5 applies these rows when it builds the geometry.**
 
 | Case | Treatment | Entry | Notes |
 |---|---|---|---|
@@ -91,6 +91,14 @@ The context-only entries are **the remaining ISO 3166-1 territories that have an
 | Bir Tawil | Part of Sudan | `sd` | South of the 22°N line. |
 | Akrotiri and Dhekelia | Merged into Cyprus | `cy` | UK sovereign base areas, too small to draw separately. No ISO code, no separate entry. |
 | Nagorno-Karabakh | Part of Azerbaijan | `az` | Internationally recognised as Azerbaijan. |
+| Siachen Glacier | Part of India | `in` | Administered line. Natural Earth draws it as a separate feature with no ISO code. |
+| Southern Kuril Islands | Part of Russia | `ru` | Administered line. Claimed by Japan. |
+| Abyei | Part of Sudan | `sd` | Administered line, as Natural Earth draws it. Claimed by South Sudan. |
+| Ilemi Triangle | Part of Kenya | `ke` | Administered line. Claimed by South Sudan. |
+| Lawa and Courantyne headwaters | Administering side | `gf` and `gy` | Lawa Headwaters with French Guiana, Courantyne Headwaters with Guyana. Both claimed by Suriname. |
+| Junagadh and Manavadar | Part of India | `in` | Administered line. Claimed by Pakistan. |
+| Demchok, Tirpani, Bara Hotii and Samdu valleys | Part of India | `in` | Administered line. Claimed by China. |
+| Sabah (North Borneo) | Part of Malaysia | `my` | Administered line. Claimed by the Philippines. |
 
 ### Other cases met while building the metadata
 
@@ -146,7 +154,7 @@ The regeneration test fails if `data/countries.json` isn't byte for byte what th
 
 ## Pipeline
 
-1. **Features to entries.** Each 1:50m feature maps to the entry `ISO_A2_EH` names (not `ISO_A2`, which is `-99` for France, Norway and Kosovo). The three features with no ISO code map through `NE_FEATURE_CODES`: Northern Cyprus → `cy`, Somaliland → `so`, Siachen Glacier → `in` (provisional, see below). Antarctica is skipped. Any other unmapped feature stops the build.
+1. **Features to entries.** Each 1:50m feature maps to the entry `ISO_A2_EH` names (not `ISO_A2`, which is `-99` for France, Norway and Kosovo). The three features with no ISO code map through `NE_FEATURE_CODES`: Northern Cyprus → `cy`, Somaliland → `so`, Siachen Glacier → `in`. Antarctica is skipped. Any other unmapped feature stops the build.
 2. **Overseas parts.** `OVERSEAS_SPLITS` moves polygon parts whose bounding box lies inside a lon/lat box to a separate entry: `gf`, `gp`, `mq`, `re`, `yt` from France; `sj` (Svalbard with Bjørnøya, and Jan Mayen, since ISO `SJ` covers both) from Norway; `bq` (Bonaire, Saba, Sint Eustatius) from the Netherlands; `cx` and `cc` from Australia's "Indian Ocean Territories"; `tk` from New Zealand. A rule that matches no part stops the build.
 3. **Border policy.** Every area in the breakaway/disputed layer has a row in `BREAKAWAY_RULINGS` naming the entry that owns it; an area with no row stops the build so it can be escalated. If the area is drawn inside a different entry, the generator moves it: the whole polygon part when the part *is* the area (Crimea, which 1:50m draws as part of Russia), otherwise a cut along the area's boundary, snapped to existing vertices so borders with third countries stay exact (the Golan Heights out of Israel; the Moroccan-administered part of Western Sahara out of Morocco). Everywhere else Natural Earth's default already matches the policy table, and the generator only checks that.
 4. **Per file.** Longitudes are wrapped into the 360° around the file's projection centre, polygons Natural Earth cut at the antimeridian are stitched back together (Russia's Chukotka and Wrangel Island, Fiji's islands on the antimeridian), and edges shared by two parts of the same entry are dissolved (Ukraine with Crimea, Cyprus with Northern Cyprus, and so on).
@@ -184,22 +192,6 @@ The regeneration test fails if `data/countries.json` isn't byte for byte what th
 
 - **Land**: entries sharing an arc in the unsimplified world topology. Touching at a single point doesn't count.
 - **Maritime**: an *island* is an entry with no land neighbour. It gets the nearest 3 entries whose land is within 1,500 km (great-circle distance between vertices). Then the relation is made symmetric, so a mainland entry can gain island neighbours.
-
-## Open border cases
-
-Natural Earth's breakaway layer has areas the policy table above does not name. Each follows Natural Earth's default, the administering state, and is marked `provisional: true` in `BREAKAWAY_RULINGS` until the owner rules:
-
-| Area | Provisional entry | Natural Earth note |
-|---|---|---|
-| Siachen Glacier | `in` | Indeterminate; claimed by India and Pakistan. It is a separate 1:50m feature with no ISO code. |
-| Kuril Is. (southern) | `ru` | Administered by Russia, claimed by Japan |
-| Abyei | `sd` | Administered by Sudan, claimed by South Sudan |
-| Ilemi Triangle | `ke` | Administered by Kenya, claimed by South Sudan |
-| Lawa Headwaters | `gf` | Administered by France, claimed by Suriname |
-| Courantyne Headwaters | `gy` | Administered by Guyana, claimed by Suriname |
-| Junagadh and Manavadar | `in` | Administered by India, claimed by Pakistan |
-| Demchok, Tirpani, Bara Hotii and Samdu valleys | `in` | Administered by India, claimed by China |
-| North Borneo (Sabah) | `my` | Malaysia; claimed by the Philippines |
 
 ## Rebuilding geometry
 

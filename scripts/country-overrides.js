@@ -178,6 +178,7 @@ export const POLICY = {
   sovereignty: '`sovereign` is true iff the entry is a UN member state or a UN non-member observer state (ps, va). Everything else is false, including Kosovo and Taiwan. No judgement about recognition is made beyond that rule (same rule as the flags app).',
   parentCode: '`parentCode` is the lowercase code of the single UN-member state that de facto administers a dependency or territory (for Cook Islands and Niue: the state they are in free association with). It is null for sovereign entries and for entries whose own status is disputed with no single administering state (tw, eh, xk). A sovereignty claim by another state does not change `parentCode`. The field records administration, not legitimacy.',
   naming: '`name` is the common English short name, without political qualifiers, with diacritics kept (e.g. Côte d\'Ivoire, Türkiye). `aliases` are former, long-form or colloquial English names used only for typing-mode search; they are not endorsements. An alias that is the shared bare name of two entries ("Korea" for kp/kr, "Congo" for cd/cg) is given to neither.',
+  bordersRule: 'Where there is a clear UN position against the administering state (Crimea, occupied Ukraine, Golan Heights, Western Sahara), the recognised state gets the land. Otherwise the administered line is used (Aksai Chin, Arunachal Pradesh, the Kashmir line of control, Siachen and the remaining disputed areas below).',
   borders: {
     crimea: 'Part of Ukraine (ua). No separate entry.',
     'northern-cyprus': 'Part of Cyprus (cy). No separate entry.',
@@ -195,7 +196,15 @@ export const POLICY = {
     'bir-tawil': 'Part of Sudan (sd), south of the 22N line.',
     'akrotiri-dhekelia': 'Merged into Cyprus (cy): UK sovereign base areas too small to draw separately.',
     'nagorno-karabakh': 'Part of Azerbaijan (az).',
-    kosovo: 'Its own entry (xk): quizzed, non-sovereign, parentCode null, southern-europe.'
+    kosovo: 'Its own entry (xk): quizzed, non-sovereign, parentCode null, southern-europe.',
+    'siachen-glacier': 'Part of India (in): the administered line, as with the Kashmir line of control.',
+    'southern-kurils': 'Part of Russia (ru): the administered line. Claimed by Japan.',
+    abyei: 'Part of Sudan (sd): the administered line, as Natural Earth draws it. Claimed by South Sudan.',
+    'ilemi-triangle': 'Part of Kenya (ke): the administered line. Claimed by South Sudan.',
+    'suriname-headwaters': 'Lawa Headwaters part of French Guiana (gf), Courantyne Headwaters part of Guyana (gy): the administered line. Both claimed by Suriname.',
+    'junagadh-manavadar': 'Part of India (in): the administered line. Claimed by Pakistan.',
+    'india-china-minor-sectors': 'Demchok, Tirpani, Bara Hotii and Samdu valleys part of India (in): the administered line. Claimed by China.',
+    sabah: 'Part of Malaysia (my): the administered line. Claimed by the Philippines.'
   },
   contested: {
     tw: 'Taiwan: not a UN member or observer -> sovereign false. Status disputed, no single administering UN-member state -> parentCode null.',
@@ -542,7 +551,7 @@ export const NOT_DRAWN = {
 export const NE_FEATURE_CODES = {
   CYN: { code: 'cy', policy: 'northern-cyprus' },
   SOL: { code: 'so', policy: 'somaliland' },
-  KAS: { code: 'in', policy: 'siachen-glacier', provisional: true }
+  KAS: { code: 'in', policy: 'siachen-glacier' }
 };
 
 /** Natural Earth features that are deliberately not drawn, keyed by `ADM0_A3`. */
@@ -576,29 +585,28 @@ export const OVERSEAS_SPLITS = [
  * `BRK_NAME`, with the entry that owns it. If the area is drawn inside another
  * entry, the generator moves it (a whole polygon part, or a cut along the
  * area's boundary). An area with no row here stops the build: a new case must
- * be ruled on, not guessed. `provisional: true` marks rows that follow Natural
- * Earth's default (the administering state) and still await an owner ruling.
+ * be ruled on, not guessed. `policy` names the row in POLICY.borders.
  */
 export const BREAKAWAY_RULINGS = {
   'Arunachal Pradesh': { code: 'in', policy: 'arunachal-pradesh' },
-  'Tirpani Valleys': { code: 'in', provisional: true },
-  'Bara Hotii Valleys': { code: 'in', provisional: true },
-  Demchok: { code: 'in', provisional: true },
-  'Samdu Valleys': { code: 'in', provisional: true },
+  'Tirpani Valleys': { code: 'in', policy: 'india-china-minor-sectors' },
+  'Bara Hotii Valleys': { code: 'in', policy: 'india-china-minor-sectors' },
+  Demchok: { code: 'in', policy: 'india-china-minor-sectors' },
+  'Samdu Valleys': { code: 'in', policy: 'india-china-minor-sectors' },
   'Jammu and Kashmir': { code: 'in', policy: 'kashmir' },
   'Shaksam Valley': { code: 'cn', policy: 'aksai-chin' },
   'Aksai Chin': { code: 'cn', policy: 'aksai-chin' },
   'Gilgit-Baltistan': { code: 'pk', policy: 'kashmir' },
-  'Siachen Glacier': { code: 'in', policy: 'siachen-glacier', provisional: true },
-  'Junagadh and Manavadar': { code: 'in', provisional: true },
-  Abyei: { code: 'sd', provisional: true },
-  'Ilemi Triangle': { code: 'ke', provisional: true },
-  'Lawa Headwaters': { code: 'gf', provisional: true },
-  'Courantyne Headwaters': { code: 'gy', provisional: true },
+  'Siachen Glacier': { code: 'in', policy: 'siachen-glacier' },
+  'Junagadh and Manavadar': { code: 'in', policy: 'junagadh-manavadar' },
+  Abyei: { code: 'sd', policy: 'abyei' },
+  'Ilemi Triangle': { code: 'ke', policy: 'ilemi-triangle' },
+  'Lawa Headwaters': { code: 'gf', policy: 'suriname-headwaters' },
+  'Courantyne Headwaters': { code: 'gy', policy: 'suriname-headwaters' },
   'Golan Heights': { code: 'sy', policy: 'golan-heights' },
   'W. Sahara': { code: 'eh', policy: 'western-sahara' },
   'N. Cyprus': { code: 'cy', policy: 'northern-cyprus' },
-  'Kuril Is.': { code: 'ru', provisional: true },
+  'Kuril Is.': { code: 'ru', policy: 'southern-kurils' },
   Somaliland: { code: 'so', policy: 'somaliland' },
   Abkhazia: { code: 'ge', policy: 'abkhazia' },
   'South Ossetia': { code: 'ge', policy: 'south-ossetia' },
@@ -607,7 +615,7 @@ export const BREAKAWAY_RULINGS = {
   Crimea: { code: 'ua', policy: 'crimea' },
   "Donetsk People's Republic": { code: 'ua', policy: 'occupied-ukraine' },
   "Luhansk People's Republic": { code: 'ua', policy: 'occupied-ukraine' },
-  'North Borneo': { code: 'my', provisional: true }
+  'North Borneo': { code: 'my', policy: 'sabah' }
 };
 
 /**

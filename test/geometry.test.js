@@ -11,7 +11,7 @@ import {
   simplifyVisvalingam,
   wrapLongitude
 } from '../scripts/build-geometry.js';
-import { BREAKAWAY_RULINGS, NOT_DRAWN } from '../scripts/country-overrides.js';
+import { BREAKAWAY_RULINGS, NE_FEATURE_CODES, NOT_DRAWN, POLICY } from '../scripts/country-overrides.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CONTINENTS = ['africa', 'asia', 'europe', 'north-america', 'south-america', 'oceania'];
@@ -315,13 +315,17 @@ describe('spot checks', () => {
     }
   });
 
-  it('rules on every breakaway area and marks unruled cases provisional', () => {
+  it('rules on every breakaway area with a row of the policy table', () => {
     const layer = JSON.parse(read('vendor/natural-earth/ne_50m_admin_0_breakaway_disputed_areas.geojson'));
     for (const feature of layer.features) {
       assert.ok(Object.hasOwn(BREAKAWAY_RULINGS, feature.properties.BRK_NAME), feature.properties.BRK_NAME);
     }
     for (const [name, ruling] of Object.entries(BREAKAWAY_RULINGS)) {
-      assert.ok(ruling.policy || ruling.provisional, `${name} needs a policy row or a provisional flag`);
+      assert.ok(Object.hasOwn(POLICY.borders, ruling.policy), `${name} needs a row in POLICY.borders`);
+      assert.ok(!Object.hasOwn(ruling, 'provisional'), `${name} is still provisional`);
+    }
+    for (const [adm0, ruling] of Object.entries(NE_FEATURE_CODES)) {
+      assert.ok(Object.hasOwn(POLICY.borders, ruling.policy), `${adm0} needs a row in POLICY.borders`);
     }
   });
 });
