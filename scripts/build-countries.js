@@ -17,6 +17,7 @@ import {
   EXCLUDED,
   HAND_PLACED,
   M49_SUBREGIONS,
+  NOT_DRAWN,
   POLICY,
   QUIZZED_EXTRAS,
   QUIZZED_TERRITORIES,
@@ -80,9 +81,20 @@ export function buildCountries() {
       throw new RangeError(`\`${code}\` is both excluded and an entry.`);
     }
   }
+  // Territories Natural Earth does not draw keep their ENTRIES row (so the
+  // tables stay complete) but are left out of countries.json.
+  for (const code of Object.keys(NOT_DRAWN)) {
+    if (!Object.hasOwn(ENTRIES, code)) {
+      throw new RangeError(`NOT_DRAWN code \`${code}\` has no entry in ENTRIES.`);
+    }
+    if (quizzedTerritories.has(code) || quizzedExtras.has(code) || ENTRIES[code].sovereign) {
+      throw new RangeError(`Quizzed entry \`${code}\` cannot be NOT_DRAWN.`);
+    }
+  }
 
   const countries = [];
   for (const code of Object.keys(ENTRIES).sort()) {
+    if (Object.hasOwn(NOT_DRAWN, code)) continue;
     const entry = ENTRIES[code];
     if (!CODE_PATTERN.test(code)) {
       throw new RangeError(`Invalid entry code \`${code}\`.`);
@@ -132,7 +144,7 @@ export function buildCountries() {
       continents: CONTINENTS,
       subregions: SUBREGIONS,
       policy: POLICY,
-      excluded: EXCLUDED
+      excluded: { ...EXCLUDED, ...NOT_DRAWN }
     },
     countries
   };
