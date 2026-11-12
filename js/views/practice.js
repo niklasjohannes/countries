@@ -11,7 +11,8 @@
 //   - map → name: the target is filled on the unlabelled map; the answer area
 //     is MC or typing (js/question.js), following the mode toggle;
 //   - name → tap: the answer area is the prompt "Tap <name>"; a tap on the map
-//     answers, and an ambiguous tap opens a two-option confirm sheet.
+//     answers, and an ambiguous tap numbers both candidates "1" and "2" on the
+//     map and opens a sheet with buttons "1", "2" and Cancel (no names).
 //
 // Feedback is hybrid (decision 12): a hit is revealed without labels and
 // advances after `HIT_ADVANCE_MS`; a miss keeps the target filled, outlines
@@ -142,10 +143,13 @@ export function mount(container, context) {
   // ---- Confirm sheet for an ambiguous tap ----
 
   let sheet = null;
-  function closeSheet() {
+  function closeSheet({ keepMarkers = false } = {}) {
     if (sheet !== null) {
       const { dialog } = sheet;
       sheet = null;
+      if (!keepMarkers) {
+        mapView.clearCandidates();
+      }
       if (dialog.open) {
         dialog.close();
       }
@@ -154,27 +158,34 @@ export function mount(container, context) {
   }
   signal.addEventListener('abort', closeSheet);
 
+  // An ambiguous tap: both candidates are outlined on the map and numbered
+  // "1" and "2" (no names), and the sheet asks which was meant. The sheet
+  // opens whether or not the target is one of the pair. A number counts as
+  // tapping that country; Cancel clears the markers and leaves the card
+  // unanswered.
   function openConfirm(pair) {
     if (isAnswered || sheet !== null || guard.isGuarded()) {
       return;
     }
+    mapView.markCandidates(pair);
     const choose = (code) => {
-      closeSheet();
+      closeSheet({ keepMarkers: true });
       handleAnswer(code === plan.code, code);
     };
-    const optionButtons = pair.map((code) => {
-      const button = el('button', { type: 'button', class: 'button' }, [names[code]]);
+    const optionButtons = pair.map((code, index) => {
+      const button = el('button', { type: 'button', class: 'button', 'aria-label': `Country ${index + 1}` }, [String(index + 1)]);
       button.addEventListener('click', () => choose(code), { signal });
       return button;
     });
     const cancelButton = el('button', { type: 'button', class: 'button-quiet' }, ['Cancel']);
-    cancelButton.addEventListener('click', closeSheet, { signal });
+    cancelButton.addEventListener('click', () => closeSheet(), { signal });
     const dialog = el('dialog', { class: 'sheet practice-confirm', 'aria-label': 'Which did you mean?' }, [
       el('div', { class: 'sheet-body' }, [
         el('h2', { class: 'sheet-title' }, ['Which did you mean?']),
         el('div', { class: 'sheet-actions' }, [...optionButtons, cancelButton])
       ])
     ]);
+    // Escape and the like close the dialog without a button: same as Cancel.
     dialog.addEventListener('close', () => {
       if (sheet !== null && sheet.dialog === dialog) {
         closeSheet();

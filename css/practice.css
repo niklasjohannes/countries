@@ -143,6 +143,11 @@
   display: none;
 }
 
+.practice-confirm {
+  /* Bottom of the screen, so the numbered map stays in view above it. */
+  margin: auto auto var(--space-4);
+}
+
 .practice-confirm .sheet-actions {
   align-items: stretch;
 }
