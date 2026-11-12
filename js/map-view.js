@@ -371,7 +371,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     }
   }
 
-  // Where a candidate's number goes: its label point, else its bbox centre.
+  // Where a candidate's number goes: its label point, else its largest ring's centre.
   function markerPoint(code) {
     const item = state.byCode.get(code);
     if (item === undefined) {
@@ -380,7 +380,10 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     if (item.label !== undefined) {
       return item.label;
     }
-    return [(item.bbox[0] + item.bbox[2]) / 2, (item.bbox[1] + item.bbox[3]) / 2];
+    // The largest ring's centre: the union bbox of an entry cut at the
+    // antimeridian (world.json) is centred near 0°.
+    const [x0, y0, x1, y1] = largestRingBbox(item.rings);
+    return [(x0 + x1) / 2, (y0 + y1) / 2];
   }
 
   function clearCandidates() {

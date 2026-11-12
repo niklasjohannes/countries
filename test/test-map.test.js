@@ -68,6 +68,15 @@ describe('deriveWorldMeta', () => {
     assert.ok((x1 - x0) * pxPerUnit < SMALL_SIDE_PX && (y1 - y0) * pxPerUnit < SMALL_SIDE_PX);
   });
 
+  it('uses the largest ring, so Fiji and Kiribati (cut at the antimeridian in world.json) are small', () => {
+    const pxPerUnit = getPxPerUnit(frame, viewport);
+    for (const code of ['fj', 'ki']) {
+      const [x0, , x1] = world.entries[code].bbox;
+      assert.ok((x1 - x0) * pxPerUnit > SMALL_SIDE_PX, `${code}: expected the union bbox to span the map`);
+      assert.equal(worldMeta.entries[code].small, true, code);
+    }
+  });
+
   it('judges "small" at the real on-screen scale: a bigger map has fewer small entries', () => {
     const count = (vp) => Object.values(deriveWorldMeta(world, frame, vp).entries).filter((e) => e.small).length;
     assert.ok(count({ width: 1_000, height: 700 }) < count({ width: 335, height: 225 }));

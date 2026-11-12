@@ -6,7 +6,7 @@
 //   - The results map uses the continent frame for a continent or sub-region
 //     scope, and `world.json` for "All".
 
-import { getPxPerUnit } from './map.js';
+import { getPxPerUnit, largestRingBbox } from './map.js';
 import { CONTINENTS, SUBREGIONS } from './srs.js';
 
 /** Geometry key of the world file (`data/geometry/world.json`). */
@@ -82,7 +82,7 @@ export function getEntriesFrame(geometry) {
  * A `map-meta`-shaped object for the world file, which has no meta of its own:
  * `smallInContinent` is true for an entry whose bbox, at the real scale of the
  * map on screen (`getPxPerUnit(frame, viewportPx)`), is under `SMALL_SIDE_PX`
- * on both sides. Nothing is tappable (the results map is not interactive) and
+ * on both sides (measured on its largest ring). Nothing is tappable (the results map is not interactive) and
  * there are no neighbours.
  *
  * @param {{ entries: object }} geometry The parsed `world.json`.
@@ -94,7 +94,9 @@ export function deriveWorldMeta(geometry, frame, viewportPx) {
   const pxPerUnit = getPxPerUnit(frame, viewportPx);
   const entries = {};
   for (const [code, entry] of Object.entries(geometry.entries)) {
-    const [bx0, by0, bx1, by1] = entry.bbox;
+    // The largest ring, not the union bbox: `world.json` is not stitched at the
+    // antimeridian, so Fiji's and Kiribati's union bboxes span the whole map.
+    const [bx0, by0, bx1, by1] = largestRingBbox(entry.rings);
     const small = (bx1 - bx0) * pxPerUnit < SMALL_SIDE_PX && (by1 - by0) * pxPerUnit < SMALL_SIDE_PX;
     entries[code] = { neighbours: [], small, tappable: false, smallInContinent: small };
   }
