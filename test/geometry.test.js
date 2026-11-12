@@ -8,6 +8,7 @@ import {
   BREAKAWAY_MIN_SHARE,
   buildGeometryFull,
   deriveNeighbours,
+  hashPoints,
   makeProjection,
   placeLabel,
   pointInRings,
@@ -244,6 +245,19 @@ describe('context land', () => {
         assert.deepEqual(bbox, [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], `${name}.context.${code}`);
       }
     }
+  });
+});
+
+describe('hashPoints (arc ids)', () => {
+  const one = [[0, 0], [1, 5], [2, 9], [4, 4]];
+  const two = [[0, 0], [1, 5], [3, 8], [4, 4]]; // same first, second, last and length
+  it('tells apart arcs that share their ends and their length', () => {
+    assert.notEqual(hashPoints(one), hashPoints(two));
+  });
+
+  it('reads the same arc the same way from either end', () => {
+    assert.equal(hashPoints(one, true), hashPoints([...one].reverse()));
+    assert.match(hashPoints(one), /^[0-9a-f]{8}$/);
   });
 });
 

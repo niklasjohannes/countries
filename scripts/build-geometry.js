@@ -232,6 +232,27 @@ function orientPolygon(polygon) {
 
 const key = (point) => `${point[0]},${point[1]}`;
 
+/**
+ * 32-bit FNV-1a hash (hex) of every point of an arc, in reading order, so two
+ * different arcs that share their first, second and last points and their
+ * length still get different ids.
+ * @param {number[][]} points
+ * @param {boolean} [reversed] read the points last to first
+ * @returns {string}
+ */
+export function hashPoints(points, reversed = false) {
+  let hash = 0x811c9dc5;
+  const mix = (value) => {
+    hash = Math.imul(hash ^ (value & 0xffffffff), 0x01000193) >>> 0;
+  };
+  for (let n = 0; n < points.length; n += 1) {
+    const [x, y] = points[reversed ? points.length - 1 - n : n];
+    mix(x);
+    mix(y);
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
 // ---- Inputs ----
 
 /**
@@ -970,9 +991,9 @@ function buildArcs(rings, spec, origin, protectedAreas) {
       }
     }
     return pieces.map((piece) => {
-      const forwardKey = `${key(piece[0])}>${key(piece[1])}>${key(piece[piece.length - 1])}>${piece.length}`;
       const last = piece.length - 1;
-      const backwardKey = `${key(piece[last])}>${key(piece[last - 1])}>${key(piece[0])}>${piece.length}`;
+      const forwardKey = `${key(piece[0])}>${key(piece[1])}>${key(piece[last])}>${piece.length}>${hashPoints(piece)}`;
+      const backwardKey = `${key(piece[last])}>${key(piece[last - 1])}>${key(piece[0])}>${piece.length}>${hashPoints(piece, true)}`;
       // A closed arc read backwards starts with the same vertex; compare its second.
       const reversed = backwardKey < forwardKey;
       const id = reversed ? backwardKey : forwardKey;
