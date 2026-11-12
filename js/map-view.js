@@ -318,6 +318,11 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     }
     const pxPerUnit = getPxPerUnit(state.frame, viewport);
 
+    // An inset that exists only because its entry was tiny goes when it is not any more (resize).
+    if (state.inset !== null && state.inset.tinyOnly && !isTiny(state.inset.entry)) {
+      svg.removeChild(state.inset.layer);
+      state.inset = null;
+    }
     // The target may only be known to be tiny now that the size is known.
     if (state.inset === null && state.focus !== null) {
       addInset(state.focus);
@@ -356,6 +361,20 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       text.setAttribute('stroke-width', LABEL_HALO_PX * unitsPerPx);
     };
     state.markers.forEach((text) => sizeMarker(text, 1 / pxPerUnit));
+    // Rings for shaded entries that are small (by the meta) or tiny (at this size).
+    for (const { circle } of state.shadeMarkers) {
+      svg.removeChild(circle);
+    }
+    state.shadeMarkers = [];
+    for (const code of state.shaded) {
+      const item = state.byCode.get(code);
+      const point = markerPoint(code);
+      if (isSmallHere(item) && point !== null) {
+        const circle = make('circle', { class: 'map-marker map-marker-shade', cx: point[0], cy: point[1], r: 1 });
+        svg.insertBefore(circle, state.layer);
+        state.shadeMarkers.push({ circle, x: point[0], y: point[1] });
+      }
+    }
     // One ring per cluster: a ring whose centre lies within a ring-radius and
     // a half of an earlier one is hidden, so microstates do not merge into blobs.
     const shown = [];
@@ -387,11 +406,16 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     return (x1 - x0) * pxPerUnit < TINY_TARGET_PX && (y1 - y0) * pxPerUnit < TINY_TARGET_PX;
   }
 
+  // Small by the meta, or tiny at the size on screen.
+  function isSmallHere(item) {
+    return item !== undefined && (item.small || isTiny(item));
+  }
+
   // Marker and inset for the highlighted target when it is small at this
   // frame. The inset reuses the path data already computed for the scene.
   function addInset(code, kind = 'target') {
     const item = state.byCode.get(code);
-    if (item === undefined || state.inset !== null || !(item.small || isTiny(item))) {
+    if (item === undefined || state.inset !== null || !isSmallHere(item)) {
       return;
     }
     const layer = make('g', { class: 'map-inset-layer' });
@@ -401,7 +425,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     layer.append(marker, box, insetSvg);
     // Below the labels, which stay frontmost.
     svg.insertBefore(layer, state.layer);
-    state.inset = { code, kind, layer, entry: item, marker, box, insetSvg, sourceKey: null, paths: new Map(), markers: [] };
+    state.inset = { code, kind, tinyOnly: !item.small, layer, entry: item, marker, box, insetSvg, sourceKey: null, paths: new Map(), markers: [] };
   }
 
   // The inset's content depends on its source box, so it is (re)built in
@@ -562,7 +586,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
 
       state = {
         scene, frame, meta, geometry, paths, byCode, hitEntries,
-        interactive, target, focus: null, picked: null, revealed: false, revealedTarget: null, labels: [], inset: null, candidates: null, markers: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
+        interactive, target, focus: null, picked: null, revealed: false, revealedTarget: null, labels: [], inset: null, candidates: null, markers: [], shaded: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
       };
       svg.append(state.layer);
       if (target !== null) {
@@ -686,7 +710,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
           state.markers.push(text);
         }
       });
-      const small = codes.find((code) => state.byCode.get(code)?.small === true);
+      const small = codes.find((code) => isSmallHere(state.byCode.get(code)));
       if (small !== undefined && state.inset === null) {
         addInset(small, 'candidate');
       } else if (state.inset !== null) {
@@ -720,19 +744,8 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       for (const [code, path] of state.paths) {
         path.setAttribute('class', shaded.has(code) ? 'map-land map-shaded' : 'map-land');
       }
-      for (const { circle } of state.shadeMarkers) {
-        svg.removeChild(circle);
-      }
-      state.shadeMarkers = [];
-      for (const code of shaded) {
-        const item = state.byCode.get(code);
-        const point = markerPoint(code);
-        if (item.small && point !== null) {
-          const circle = make('circle', { class: 'map-marker map-marker-shade', cx: point[0], cy: point[1], r: 1 });
-          svg.insertBefore(circle, state.layer);
-          state.shadeMarkers.push({ circle, x: point[0], y: point[1] });
-        }
-      }
+      // The rings are (re)built in `relayout`, once the size shows which entries are tiny.
+      state.shaded = [...shaded];
       relayout();
     },
 

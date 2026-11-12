@@ -324,7 +324,7 @@ export function hitTest(point, entries, frame, viewportPx) {
 /**
  * Lays out the circle marker and zoomed inset for a (small) entry.
  *
- * - `marker`: a circle around the entry, at least `MARKER_MIN_RADIUS_PX` CSS px
+ * - `marker`: a circle around the entry (its largest ring when it has `rings`), at least `MARKER_MIN_RADIUS_PX` CSS px
  *   in radius at the given viewport, so it stays visible.
  * - `source`: a square around the entry's bbox, padded by
  *   `INSET_PADDING_SHARE` of its longer side, i.e. the part of the map the
@@ -347,7 +347,10 @@ export function computeInset(entry, frame, viewportPx) {
   assertBox(entry.bbox, 'entry.bbox', { allowEmpty: true });
   const pxPerUnit = getPxPerUnit(frame, viewportPx);
 
-  const [bx0, by0, bx1, by1] = entry.bbox;
+  // An archipelago's union bbox is far bigger than any island: ring and
+  // magnify its largest ring (the union bbox when there are no rings).
+  const hasRings = Array.isArray(entry.rings) && entry.rings.length > 0;
+  const [bx0, by0, bx1, by1] = hasRings ? largestRingBbox(entry.rings) : entry.bbox;
   const [fx0, fy0, fx1, fy1] = frame;
   const frameShortSide = Math.min(fx1 - fx0, fy1 - fy0);
   const cx = (bx0 + bx1) / 2;

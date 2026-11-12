@@ -296,6 +296,22 @@ describe('createMapView render', () => {
     assert.equal(byClass(view.svg, 'map-marker').length, 0);
   });
 
+  it('drops an inset that existed only because the target was tiny once it is big', () => {
+    const custom = { entries: { aa: geometry.entries.km }, context: {} };
+    const info = { entries: { aa: { small: false, smallInContinent: false, tappable: true, neighbours: [] } } };
+    const wide = [...geometry.entries.km.bbox];
+    wide[2] += 600_000;
+    wide[3] += 600_000;
+    const view = makeView();
+    layOut(view.svg, VIEWPORT, wide);
+    view.render({ geometry: custom, meta: info, frame: wide, frameLevel: 'subregion', target: 'aa' });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    // The map gets much bigger (a rotation, say): the entry is no longer tiny.
+    layOut(view.svg, { width: 20_000, height: 20_000 }, wide);
+    view.relayout();
+    assert.equal(byClass(view.svg, 'map-marker').length, 0);
+  });
+
   it('rejects an unknown target, and one that is not drawn in this frame', () => {
     const view = makeView();
     assert.throws(() => view.render({ ...baseInput, target: 'zz' }), /`target`/);

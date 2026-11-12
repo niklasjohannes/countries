@@ -11,6 +11,7 @@ import {
   computeInset,
   getPxPerUnit,
   hitTest,
+  largestRingBbox,
   ringsToPathData,
 } from '../js/map.js';
 
@@ -278,11 +279,12 @@ describe('computeInset', () => {
 
   it('magnifies a padded square around the entry and places it inside the frame', () => {
     const { marker, source, target } = computeInset(comoros, frame, PHONE_PX);
-    assert.ok(contains(source, comoros.bbox));
+    // The largest island, not the union of all four.
+    assert.ok(contains(source, largestRingBbox(comoros.rings)));
     assert.equal(source[2] - source[0], source[3] - source[1]);
     assert.ok(contains(frame, target));
     assert.equal(target[2] - target[0], target[3] - target[1]);
-    const [bx0, by0, bx1, by1] = comoros.bbox;
+    const [bx0, by0, bx1, by1] = largestRingBbox(comoros.rings);
     assert.deepEqual([marker.cx, marker.cy], [(bx0 + bx1) / 2, (by0 + by1) / 2]);
     assert.ok(marker.r >= Math.hypot(bx1 - bx0, by1 - by0) / 2);
   });
@@ -307,6 +309,21 @@ describe('computeInset', () => {
       const { marker } = computeInset(point, tall, viewportPx);
       assert.ok(Math.abs(marker.r * getPxPerUnit(tall, viewportPx) - MARKER_MIN_RADIUS_PX) < 1e-9);
     }
+  });
+
+  it('rings and magnifies the largest ring of a scattered archipelago, not its union bbox', () => {
+    const square = (x0, y0, size) => [[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size], [x0, y0]];
+    // Two islands 20,000 units apart: the union bbox is 20,100 wide, the big island 100.
+    const rings = [square(10_000, 10_000, 100), square(30_000, 10_000, 20)];
+    const entry = { bbox: [10_000, 10_000, 30_020, 10_100], rings };
+    const frame = [0, 0, 40_000, 40_000];
+    const viewport = { width: 400, height: 400 };
+    const { marker, source } = computeInset(entry, frame, viewport);
+    assert.deepEqual([marker.cx, marker.cy], [10_050, 10_050]);
+    assert.ok(marker.r <= MARKER_MIN_RADIUS_PX / getPxPerUnit(frame, viewport) + 1e-9, `the ring must hug the big island, got r=${marker.r}`);
+    assert.equal(source[2] - source[0], 200, 'source is the big island plus padding, so the inset magnifies');
+    // Without rings the union bbox is still used.
+    assert.equal(computeInset({ bbox: entry.bbox }, frame, viewport).source[2] - computeInset({ bbox: entry.bbox }, frame, viewport).source[0], 40_040);
   });
 
   it('keeps a visible marker and a non-empty source for a point-sized entry', () => {
