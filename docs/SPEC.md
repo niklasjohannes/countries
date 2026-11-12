@@ -255,7 +255,7 @@ Implement layers 2–4 of the Privacy guard exactly as specified:
 **Acceptance criteria**:
 
 - All tests pass.
-- With the hooks active, a deliberately bad commit is blocked locally. Use a fake address such as `someone@example.net`, which is not allowlisted, in a scratch branch that is deleted afterwards.
+- With the hooks active, a deliberately bad commit is blocked locally. Use a fake address at the `example.net` domain (not allowlisted), in a scratch branch that is deleted afterwards.
 - The CI `privacy` job is green on this PR.
 - The security review checks that the scanner itself can't leak, and that CI can't be bypassed with a `[skip ci]` message. If it can be, note this and require the job in branch protection.
 

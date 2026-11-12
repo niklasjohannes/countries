@@ -52,6 +52,27 @@ node --test
 
 CI runs the same command on every push and pull request.
 
+## Privacy guard
+
+Nothing personal (work email, employer name, home paths, credentials, local Claude state) may reach GitHub. See [`docs/SPEC.md`](docs/SPEC.md) → Privacy guard for the rules. The mechanical layers are:
+
+- `scripts/check-privacy.js`, a zero-dependency scanner. It prints `file:line  category` only, never the matched text. Modes: `--staged`, `--range <a>..<b>`, `--new-commits <sha>`, `--tree`, `--stdin [--commit-message]` and `--identity`.
+- Git hooks in `.githooks/` (`pre-commit`, `commit-msg`, `pre-push`). Hooks are not versioned by git itself, so activate them once per clone:
+
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+
+  Linked worktrees share this setting. The hooks need `node` on the `PATH`; without it they fail closed.
+- The `privacy` job in CI, which scans every commit in a PR (or push to `main`) and the whole tree.
+- Private patterns (work email, employer name) live in `.git/info/private-patterns`, never committed: one case-insensitive literal per line, `#` starts a comment. Without that file (as in CI) only the generic rules run.
+
+To check text before publishing it (an issue or PR body, say):
+
+```bash
+node scripts/check-privacy.js --stdin < .tmp/body.md
+```
+
 ## License
 
 [MIT](LICENSE)

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Privacy guard: block commit messages that contain personal text or a CI-skip marker.
+# $1 is the path of the file holding the message.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+node scripts/check-privacy.js --identity || exit 1
+node scripts/check-privacy.js --stdin --commit-message < "$1" || exit 1
