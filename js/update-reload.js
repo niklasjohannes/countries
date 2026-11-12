@@ -5,12 +5,16 @@
 // `sw.js` calls `skipWaiting()`, so a new deploy takes over an open page at
 // once (`controllerchange`). The page's JS is then the old version, so it
 // reloads, but only where nothing is lost:
-//   - the first `controllerchange` on a page that had no worker (first
-//     visit) is not an update: no reload;
+//   - the first `controllerchange` on a page that had no worker and no
+//     registration (first visit) is not an update: no reload. A page that
+//     loaded with a registration but no controller (a hard reload) is
+//     running old JS already, so js/app.js counts it as having a worker;
 //   - after an update, reload at once only on home with no sheet
-//     (`<dialog>`) open;
-//   - otherwise wait: retry when a sheet closes, and reload instead of the
-//     next navigation to home (so a round or test is never interrupted);
+//     (`<dialog>`) open and no import or export running;
+//   - otherwise wait: retry when a sheet closes or the work settles;
+//   - a navigation to home reloads only when the user tapped to get there,
+//     never for a programmatic `navigate('home')` (for example after an
+//     import has written its data);
 //   - reload at most once.
 
 /** Events `decideReload` understands. */
@@ -19,8 +23,8 @@ export const RELOAD_EVENTS = Object.freeze(['controllerchange', 'dialogclose', '
 /**
  * Initial state.
  *
- * @param {boolean} hadController Whether the page was already controlled by
- *   a service worker when it loaded (`navigator.serviceWorker.controller`).
+ * @param {boolean} hadController Whether the page already ran under a
+ *   service worker when it loaded: a controller, or an existing registration.
  * @returns {{ hadController: boolean, isPending: boolean, isReloading: boolean }}
  *   Frozen.
  */
@@ -37,9 +41,10 @@ export function createReloadState(hadController) {
  * @param {{ hadController: boolean, isPending: boolean, isReloading: boolean }}
  *   state From `createReloadState` or a previous call.
  * @param {string} event One of `RELOAD_EVENTS`: a new worker took over, a
- *   `<dialog>` closed, or something is about to navigate to home.
- * @param {{ isOnHome: boolean, hasOpenDialog: boolean }} view What is on
- *   screen now. Ignored for `'navigatehome'`.
+ *   `<dialog>` closed or some work settled, or the user is navigating home.
+ * @param {{ isOnHome: boolean, hasOpenDialog: boolean, isUserTap: boolean }} view
+ *   What is on screen now, and whether this navigation came from a tap.
+ *   `isUserTap` is only read for `'navigatehome'`.
  * @returns {{ state: object, reload: boolean }} The next state (frozen), and
  *   whether to reload now. `reload` is `true` at most once per state chain.
  *   After `'navigatehome'`, skip the navigation if `state.isReloading`.
@@ -53,8 +58,9 @@ export function decideReload(state, event, view) {
     throw new RangeError(`\`event\` must be one of ${RELOAD_EVENTS.join(', ')}.`);
   }
   if (typeof view !== 'object' || view === null ||
-    typeof view.isOnHome !== 'boolean' || typeof view.hasOpenDialog !== 'boolean') {
-    throw new TypeError('`view` must be `{ isOnHome: boolean, hasOpenDialog: boolean }`.');
+    typeof view.isOnHome !== 'boolean' || typeof view.hasOpenDialog !== 'boolean' ||
+    typeof view.isUserTap !== 'boolean') {
+    throw new TypeError('`view` must be `{ isOnHome: boolean, hasOpenDialog: boolean, isUserTap: boolean }`.');
   }
 
   let next = state;
@@ -63,7 +69,9 @@ export function decideReload(state, event, view) {
       ? { ...state, isPending: true }
       : { ...state, hadController: true };
   }
-  const isSafe = event === 'navigatehome' || (view.isOnHome && !view.hasOpenDialog);
+  const isSafe = event === 'navigatehome'
+    ? view.isUserTap && !view.hasOpenDialog
+    : view.isOnHome && !view.hasOpenDialog;
   const reload = next.isPending && !next.isReloading && isSafe;
   if (reload) {
     next = { ...next, isReloading: true };

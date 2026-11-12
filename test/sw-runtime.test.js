@@ -113,6 +113,9 @@ function createCaches(initialNames = []) {
       }
       return openCache(store.get(name));
     },
+    async has(name) {
+      return store.has(name);
+    },
     async keys() {
       return [...store.keys()];
     },
@@ -248,6 +251,24 @@ describe('sw.js activate', () => {
     assert.deepEqual(fake.log.deleted.sort(), ['countries-precache-0000000000000000', 'countries-precache-ffff']);
     assert.deepEqual([...fake.store.keys()], [CACHE_NAME, ...others]);
     assert.deepEqual(worker.calls, ['claim']);
+  });
+});
+
+describe('sw.js failed install', () => {
+  it('deletes the cache a failed install created, and keeps one that already existed', async () => {
+    const failing = createFetch(() => {
+      throw new TypeError('Failed to fetch');
+    });
+    const created = createCaches();
+    await assert.rejects(dispatchLifecycle(loadWorker({ fetch: failing.fetch, caches: created.caches }), 'install'));
+    assert.deepEqual(created.log.deleted, [CACHE_NAME]);
+    assert.deepEqual(await created.caches.keys(), []);
+
+    // An edit to sw.js alone keeps CACHE_VERSION, so this may be the live cache.
+    const existing = createCaches([CACHE_NAME]);
+    await assert.rejects(dispatchLifecycle(loadWorker({ fetch: failing.fetch, caches: existing.caches }), 'install'));
+    assert.deepEqual(existing.log.deleted, []);
+    assert.deepEqual(await existing.caches.keys(), [CACHE_NAME]);
   });
 });
 

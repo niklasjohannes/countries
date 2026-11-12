@@ -16,6 +16,7 @@
 // committed block differs from a fresh build.
 
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -59,7 +60,19 @@ export function listPrecacheFiles(root = REPO_ROOT) {
   if (typeof root !== 'string' || root === '') {
     throw new TypeError('`root` must be a non-empty string.');
   }
-  return [...APP_FILES, ...APP_DIRS.flatMap((dir) => walkFiles(root, dir))].sort();
+  const files = [...APP_FILES, ...APP_DIRS.flatMap((dir) => walkFiles(root, dir))].sort();
+  // Only committed files reach a deployed worker. An untracked file is one a
+  // deploy would miss (or ship without review), so it is an error, not a
+  // silent omission.
+  const tracked = new Set(execFileSync('git', ['ls-files', '-z', '--', ...APP_FILES, ...APP_DIRS], {
+    cwd: root,
+    encoding: 'utf8'
+  }).split('\0'));
+  const untracked = files.filter((path) => !tracked.has(path));
+  if (untracked.length > 0) {
+    throw new Error(`These files are not tracked by git (\`git add\` them, or delete them): ${untracked.join(', ')}.`);
+  }
+  return files;
 }
 
 /**
@@ -169,7 +182,14 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { version, files, block } = buildFromRepo();
   const source = readFileSync(SW_PATH, 'utf8');
   const updated = replaceBlock(source, block);
-  if (updated === source) {
+  if (process.argv.includes('--check')) {
+    // Read-only: CI and `npm run check:sw` use this to fail on a stale sw.js.
+    if (updated !== source) {
+      console.error('`sw.js` is out of sync with the app files. Run `node scripts/build-sw.js` and commit the result.');
+      process.exit(1);
+    }
+    console.log(`sw.js is up to date (version ${version}, ${files.length} files).`);
+  } else if (updated === source) {
     console.log(`sw.js is up to date (version ${version}, ${files.length} files).`);
   } else {
     writeFileSync(SW_PATH, updated);

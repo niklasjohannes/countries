@@ -47,8 +47,8 @@
 // takes over an open page at once (`controllerchange`). This page's JS is
 // then the old version while assets come from the new cache. The page
 // reloads to pick up the new JS, but only where nothing is lost: at once if
-// home is showing (and no sheet is open on it), otherwise the next time
-// anything navigates to home. A round or test is never interrupted.
+// home is showing (and no sheet is open or import running), otherwise the
+// next time the user taps to go home. A round or test is never interrupted.
 //
 // Browsers look for a new `sw.js` on navigation. An installed iOS app is
 // usually resumed from the background instead, with no navigation, so the
@@ -63,6 +63,7 @@ import * as test from './views/test.js';
 import { watchResume } from './resume.js';
 import { el } from './ui.js';
 import { createReloadState, decideReload } from './update-reload.js';
+import { isBusy, onIdle } from './busy.js';
 
 const DATA_URL = './data/countries.json';
 
@@ -183,30 +184,62 @@ function transition(name, params) {
 // whether a reload has started (now or before).
 function applyReloadEvent(event) {
   const isOnHome = current !== null && current.name === 'home';
-  const hasOpenDialog = current !== null && current.container.querySelector('dialog[open]') !== null;
-  const decision = decideReload(reloadState, event, { isOnHome, hasOpenDialog });
+  // Any open sheet on any screen, or an import or export still running,
+  // holds the reload.
+  const hasOpenDialog = isBusy() || document.querySelector('dialog[open]') !== null;
+  const decision = decideReload(reloadState, event, { isOnHome, hasOpenDialog, isUserTap: isTapInProgress });
   reloadState = decision.state;
   if (decision.reload) {
+    // Tear the view down first, so its timers and listeners stop before the reload.
+    unmountCurrent();
     location.reload();
   }
   return reloadState.isReloading;
 }
 
-function registerServiceWorker() {
+function unmountCurrent() {
+  if (current === null) {
+    return;
+  }
+  try {
+    current.view.unmount();
+  } catch (error) {
+    console.error(error);
+  }
+  current.container.replaceChildren();
+  current = null;
+}
+
+// True only while a click is being dispatched, so a `navigate('home')` from
+// later async work (such as an import's write) does not count as a tap. The
+// flag clears in a timer, after every listener for this click has run.
+let isTapInProgress = false;
+document.addEventListener('click', () => {
+  isTapInProgress = true;
+  setTimeout(() => {
+    isTapInProgress = false;
+  }, 0);
+}, { capture: true });
+
+async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) {
     return;
   }
-  // The first worker claiming a page that had none (first visit) is not an
-  // update: nothing to reload.
-  reloadState = createReloadState(navigator.serviceWorker.controller !== null);
+  // A page loaded with a registration but no controller (a hard reload) still
+  // runs the JS of the worker it was built for, so a later takeover is an
+  // update. A first visit has neither, so its takeover reloads nothing.
+  const existing = await navigator.serviceWorker.getRegistration();
+  reloadState = createReloadState(navigator.serviceWorker.controller !== null || existing !== undefined);
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     applyReloadEvent('controllerchange');
   });
-  // A sheet open on home deferred the reload: retry when it closes. `close`
-  // does not bubble, so listen in the capture phase.
+  // A sheet open on home, or an import or export still running, deferred the
+  // reload: retry when it closes or the work settles. `close` does not
+  // bubble, so listen in the capture phase.
   document.addEventListener('close', () => {
     applyReloadEvent('dialogclose');
   }, { capture: true });
+  onIdle(() => applyReloadEvent('dialogclose'));
   // Registering checks for an update itself, so the clock starts now.
   let lastCheckAt = Date.now();
   navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((registration) => {

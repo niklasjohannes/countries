@@ -5,6 +5,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, normalize } from 'node:path';
@@ -143,6 +144,14 @@ describe('precache list', () => {
         assert.ok(listed.has(target), `\`${module}\` imports \`${target}\`, which is not precached.`);
       }
     }
+  });
+});
+
+describe('scripts/build-sw.js --check', () => {
+  it('exits 0 when the committed sw.js is in sync (CI runs this too)', () => {
+    const result = spawnSync(process.execPath, [join(REPO_ROOT, 'scripts', 'build-sw.js'), '--check'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /sw\.js is up to date/);
   });
 });
 

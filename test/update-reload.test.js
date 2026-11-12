@@ -13,10 +13,14 @@ import { RELOAD_EVENTS, createReloadState, decideReload } from '../js/update-rel
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-const ON_HOME = Object.freeze({ isOnHome: true, hasOpenDialog: false });
-const HOME_WITH_SHEET = Object.freeze({ isOnHome: true, hasOpenDialog: true });
-const IN_ROUND = Object.freeze({ isOnHome: false, hasOpenDialog: false });
-const IN_TEST_WITH_SHEET = Object.freeze({ isOnHome: false, hasOpenDialog: true });
+const ON_HOME = Object.freeze({ isOnHome: true, hasOpenDialog: false, isUserTap: false });
+const HOME_WITH_SHEET = Object.freeze({ isOnHome: true, hasOpenDialog: true, isUserTap: false });
+const IN_ROUND = Object.freeze({ isOnHome: false, hasOpenDialog: false, isUserTap: false });
+const IN_TEST_WITH_SHEET = Object.freeze({ isOnHome: false, hasOpenDialog: true, isUserTap: false });
+// A tap on the home button, from a round.
+const TAP_HOME = Object.freeze({ isOnHome: false, hasOpenDialog: false, isUserTap: true });
+// `navigate('home')` from code, such as after an import has written its data.
+const PROGRAMMATIC_HOME = Object.freeze({ isOnHome: false, hasOpenDialog: false, isUserTap: false });
 
 // Feed `[event, view]` pairs in order; returns the final state and which
 // steps reloaded.
@@ -43,13 +47,18 @@ describe('decideReload', () => {
     assert.deepEqual(run(false, [
       ['controllerchange', ON_HOME],
       ['dialogclose', ON_HOME],
-      ['navigatehome', IN_ROUND]
+      ['navigatehome', TAP_HOME]
     ]).reloads, []);
+  });
+
+  it('treats a page with a registration but no controller (hard reload) as already running a worker', () => {
+    // js/app.js passes `hadController` true when a registration exists, so the
+    // takeover of a hard-reloaded page reloads at once, not never.
+    assert.deepEqual(run(true, [['controllerchange', ON_HOME]]).reloads, [0]);
   });
 
   it('reloads on a later controllerchange at once, only on home with no sheet open', () => {
     assert.deepEqual(run(false, [['controllerchange', ON_HOME], ['controllerchange', ON_HOME]]).reloads, [1]);
-    assert.deepEqual(run(true, [['controllerchange', ON_HOME]]).reloads, [0]);
     for (const view of [HOME_WITH_SHEET, IN_ROUND, IN_TEST_WITH_SHEET]) {
       const { state, reloads } = run(true, [['controllerchange', view]]);
       assert.deepEqual(reloads, [], JSON.stringify(view));
@@ -57,7 +66,7 @@ describe('decideReload', () => {
     }
   });
 
-  it('defers a reload blocked by a sheet on home until the sheet closes', () => {
+  it('defers a reload blocked by a sheet on home (or an import in progress) until it closes', () => {
     const { reloads } = run(true, [
       ['controllerchange', HOME_WITH_SHEET],
       // A second sheet closing while one is still open is not enough.
@@ -67,15 +76,21 @@ describe('decideReload', () => {
     assert.deepEqual(reloads, [2]);
   });
 
-  it('defers a reload during a round or test until the next navigation to home', () => {
+  it('defers a reload during a round or test until the user taps home', () => {
     const { state, reloads } = run(true, [
       ['controllerchange', IN_ROUND],
       // The test's exit sheet closing does not reload mid-test.
       ['dialogclose', IN_ROUND],
-      ['navigatehome', IN_ROUND]
+      // Programmatic navigation to home does not count as a tap.
+      ['navigatehome', PROGRAMMATIC_HOME],
+      ['navigatehome', TAP_HOME]
     ]);
-    assert.deepEqual(reloads, [2]);
+    assert.deepEqual(reloads, [3]);
     assert.equal(state.isReloading, true);
+  });
+
+  it('never reloads on programmatic navigation to home', () => {
+    assert.deepEqual(run(true, [['controllerchange', IN_ROUND], ['navigatehome', PROGRAMMATIC_HOME]]).reloads, []);
   });
 
   it('reloads at most once', () => {
@@ -83,7 +98,7 @@ describe('decideReload', () => {
       ['controllerchange', ON_HOME],
       ['controllerchange', ON_HOME],
       ['dialogclose', ON_HOME],
-      ['navigatehome', ON_HOME]
+      ['navigatehome', TAP_HOME]
     ]);
     assert.deepEqual(reloads, [0]);
     // `navigate` skips the transition while a reload is under way.
@@ -91,7 +106,7 @@ describe('decideReload', () => {
   });
 
   it('never reloads on dialog close or navigation without an update', () => {
-    assert.deepEqual(run(true, [['dialogclose', ON_HOME], ['navigatehome', IN_ROUND]]).reloads, []);
+    assert.deepEqual(run(true, [['dialogclose', ON_HOME], ['navigatehome', TAP_HOME]]).reloads, []);
   });
 
   it('does not mutate the state it is given', () => {
@@ -107,7 +122,8 @@ describe('decideReload', () => {
     assert.throws(() => decideReload({}, 'controllerchange', ON_HOME), TypeError);
     assert.throws(() => decideReload(state, 'reload', ON_HOME), RangeError);
     assert.throws(() => decideReload(state, 'navigatehome'), TypeError);
-    assert.throws(() => decideReload(state, 'dialogclose', { isOnHome: 'yes', hasOpenDialog: false }), TypeError);
+    assert.throws(() => decideReload(state, 'dialogclose', { isOnHome: 'yes', hasOpenDialog: false, isUserTap: false }), TypeError);
+    assert.throws(() => decideReload(state, 'navigatehome', { isOnHome: false, hasOpenDialog: false }), TypeError);
     assert.deepEqual(RELOAD_EVENTS, ['controllerchange', 'dialogclose', 'navigatehome']);
   });
 
@@ -117,6 +133,7 @@ describe('decideReload', () => {
     for (const event of RELOAD_EVENTS) {
       assert.match(app, new RegExp(`applyReloadEvent\\('${event}'\\)`));
     }
+    assert.match(app, /isBusy\(\) \|\| document\.querySelector\('dialog\[open\]'\)/, 'busy work and any open dialog hold the reload');
     assert.equal(app.match(/location\.reload\(\)/g)?.length, 2, 'the update reload and the error screen\'s button');
   });
 });
