@@ -21,7 +21,8 @@
 // default `preserveAspectRatio` (meet), and its CSS px size (from
 // `getBoundingClientRect`) is the `viewportPx` given to `hitTest` and
 // `computeInset`. The caller picks the frame (`pickFrame` in `js/cards.js`);
-// this module does not.
+// this module does not. Call `relayout()` after attaching `view.element` to
+// the document, as a fallback for when `ResizeObserver` has not fired yet.
 
 import { computeInset, getPxPerUnit, hitTest, ringsToPathData } from './map.js';
 
@@ -73,6 +74,10 @@ function assertMeta(meta) {
 }
 
 // ---- Pure helpers (exported for tests) ----
+
+function isValidLabel(label) {
+  return Array.isArray(label) && label.length === 2 && label.every(Number.isFinite);
+}
 
 /**
  * Whether two `[x0, y0, x1, y1]` boxes overlap or touch.
@@ -151,7 +156,7 @@ export function planScene({ geometry, meta, frame, frameLevel }) {
         d: ringsToPathData(entry.rings),
         rings: entry.rings,
         bbox: entry.bbox,
-        label: entry.label,
+        label: isValidLabel(entry.label) ? entry.label : undefined,
         tappable: info.tappable === true,
         small: info[smallKey] === true
       };
@@ -239,6 +244,11 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       setBox(box, layout.target);
       setBox(insetSvg, layout.target);
       insetSvg.setAttribute('viewBox', toViewBox(layout.source));
+      const sourceKey = layout.source.join(' ');
+      if (state.inset.sourceKey !== sourceKey) {
+        state.inset.sourceKey = sourceKey;
+        fillInset(layout.source);
+      }
     }
     for (const label of state.labels) {
       label.setAttribute('font-size', LABEL_FONT_PX / pxPerUnit);
@@ -257,15 +267,33 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     const marker = make('circle', { class: 'map-marker' });
     const box = make('rect', { class: 'map-inset-box' });
     const insetSvg = make('svg', { class: 'map-inset', preserveAspectRatio: 'xMidYMid meet' });
-    for (const other of state.scene.land) {
-      insetSvg.append(make('path', {
-        class: other.code === code ? 'map-target' : 'map-land',
-        d: other.d
-      }));
-    }
     layer.append(marker, box, insetSvg);
-    svg.append(layer);
-    state.inset = { entry: item, marker, box, insetSvg };
+    // Below the labels, which stay frontmost.
+    svg.insertBefore(layer, state.layer);
+    state.inset = { code, entry: item, marker, box, insetSvg, sourceKey: null, paths: new Map() };
+  }
+
+  // The inset's content depends on its source box, so it is (re)built in
+  // `relayout`: own land meeting the source box, plus the context path.
+  // It reuses the scene's path data.
+  function fillInset(source) {
+    const inset = state.inset;
+    inset.insetSvg.replaceChildren();
+    inset.paths = new Map();
+    if (state.scene.contextD !== '') {
+      inset.insetSvg.append(make('path', { class: 'map-context', d: state.scene.contextD }));
+    }
+    for (const other of state.scene.land) {
+      if (!boxesIntersect(other.bbox, source)) {
+        continue;
+      }
+      const path = make('path', { class: other.code === inset.code ? 'map-land map-target' : 'map-land', d: other.d });
+      inset.insetSvg.append(path);
+      inset.paths.set(other.code, path);
+    }
+    if (state.picked !== null && inset.paths.has(state.picked)) {
+      inset.paths.get(state.picked).setAttribute('class', 'map-land map-picked');
+    }
   }
 
   function highlight(code) {
@@ -316,8 +344,8 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
      */
     render({ geometry, meta, frame, frameLevel, target = null, interactive = false }) {
       const scene = planScene({ geometry, meta, frame, frameLevel });
-      if (target !== null && !Object.hasOwn(geometry.entries, target)) {
-        throw new RangeError('`target` must be an entry of `geometry`.');
+      if (target !== null && !scene.land.some((item) => item.code === target)) {
+        throw new RangeError('`target` must be an entry of `geometry` drawn in this frame.');
       }
 
       svg.replaceChildren();
@@ -342,7 +370,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
 
       state = {
         scene, frame, meta, geometry, paths, byCode, hitEntries,
-        interactive, labels: [], inset: null, layer: make('g', { class: 'map-label-layer' })
+        interactive, target, picked: null, revealed: false, labels: [], inset: null, layer: make('g', { class: 'map-label-layer' })
       };
       svg.append(state.layer);
       if (target !== null) {
@@ -363,6 +391,9 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       if (state === null) {
         throw new Error('`render` must be called before `reveal`.');
       }
+      if (state.target !== null && target !== state.target) {
+        throw new RangeError('`target` must be the target given to `render`.');
+      }
       if (typeof target !== 'string' || !state.paths.has(target)) {
         throw new RangeError('`target` must be an entry drawn in the current frame.');
       }
@@ -372,11 +403,17 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       if (!isPlainObject(names)) {
         throw new TypeError('`names` must be an object mapping codes to names.');
       }
+      if (state.revealed) {
+        return;
+      }
+      state.revealed = true;
       state.interactive = false;
       highlight(target);
 
       if (picked !== null && picked !== target && state.paths.has(picked)) {
+        state.picked = picked;
         state.paths.get(picked).setAttribute('class', 'map-land map-picked');
+        state.inset?.paths.get(picked)?.setAttribute('class', 'map-land map-picked');
       }
       if (correct) {
         relayout();
@@ -388,6 +425,11 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         const item = state.byCode.get(code);
         const name = names[code];
         if (item === undefined || item.label === undefined || typeof name !== 'string') {
+          continue;
+        }
+        // Skip labels whose point lies outside the frame.
+        const [lx, ly] = item.label;
+        if (lx < state.frame[0] || lx > state.frame[2] || ly < state.frame[1] || ly > state.frame[3]) {
           continue;
         }
         // Keep labels near a frame edge inside the frame.

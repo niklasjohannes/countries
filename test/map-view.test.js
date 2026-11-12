@@ -52,6 +52,7 @@ class FakeNode {
   setAttribute(name, value) { this.attrs[name] = String(value); }
   getAttribute(name) { return this.attrs[name] ?? null; }
   append(...nodes) { this.children.push(...nodes); }
+  insertBefore(node, ref) { this.children.splice(this.children.indexOf(ref), 0, node); }
   replaceChildren() { this.children = []; }
   set textContent(value) { this.text = String(value); }
   get textContent() { return this.text; }
@@ -208,7 +209,8 @@ describe('createMapView render', () => {
     assert.equal(w, h, 'inset source is square');
     assert.ok(w > 0);
     // The inset reuses the scene's path data.
-    const sceneData = new Set(planScene(eastern).land.map(({ d }) => d));
+    const scene = planScene(eastern);
+    const sceneData = new Set([scene.contextD, ...scene.land.map(({ d }) => d)]);
     assert.ok(inset.children.every((p) => sceneData.has(p.attrs.d)));
   });
 
@@ -228,16 +230,45 @@ describe('createMapView render', () => {
     assert.equal(byClass(view.svg, 'map-marker').length, 0);
   });
 
-  it('rejects an unknown target', () => {
+  it('rejects an unknown target, and one that is not drawn in this frame', () => {
     const view = makeView();
     assert.throws(() => view.render({ ...baseInput, target: 'zz' }), /`target`/);
+    // Comoros is in the geometry but outside the southern-africa frame.
+    assert.throws(() => view.render({ ...baseInput, target: 'km' }), /drawn in this frame/);
+  });
+
+  it('puts the inset below the labels and builds it from land near its source', () => {
+    const view = makeView();
+    const eastern = { ...baseInput, frame: meta.frames['eastern-africa'] };
+    view.render({ ...eastern, target: 'km' });
+    view.reveal({ target: 'km', picked: 'mz', correct: false, names: { km: 'x', mz: 'y' } });
+    const classes = view.svg.children.map((n) => n.attrs.class);
+    assert.ok(classes.indexOf('map-inset-layer') < classes.indexOf('map-label-layer'));
+    const [inset] = byClass(view.svg, 'map-inset');
+    assert.ok(inset.children.length < planScene(eastern).land.length + 1);
+    assert.ok(byClass(inset, 'map-context').length <= 1);
+  });
+
+  it('skips labels outside the frame', () => {
+    const view = makeView();
+    view.render({ ...baseInput, target: 'za' });
+    view.reveal({ target: 'za', correct: false, names: { za: 'x', mz: 'y', bw: 'z' } });
+    for (const label of all(view.svg, (n) => n.tag === 'text')) {
+      assert.ok(Number(label.attrs.x) >= FRAME[0] && Number(label.attrs.x) <= FRAME[2]);
+      assert.ok(Number(label.attrs.y) >= FRAME[1] && Number(label.attrs.y) <= FRAME[3]);
+    }
+  });
+
+  it('drops a label with non-finite coordinates', () => {
+    const bad = { ...geometry, entries: { ...geometry.entries, za: { ...geometry.entries.za, label: [NaN, 1] } } };
+    assert.equal(planScene({ ...baseInput, geometry: bad }).land.find((i) => i.code === 'za').label, undefined);
   });
 });
 
 describe('no spoilers before the reveal', () => {
   const tokens = (text) => new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
 
-  for (const target of [null, 'za', 'km']) {
+  for (const target of [null, 'za', 'ls']) {
     it(`leaks no names or codes before the reveal (target ${target})`, () => {
       const view = makeView();
       view.render({ ...baseInput, target, interactive: true });
@@ -284,7 +315,7 @@ describe('source safety', () => {
     const setsD = source.match(/\bd:\s*[^,}\n]+/g) ?? [];
     assert.ok(setsD.length > 0);
     for (const use of setsD) {
-      assert.match(use, /\bd:\s*(item\.d|other\.d|scene\.contextD|ringsToPathData\()/);
+      assert.match(use, /\bd:\s*(item\.d|other\.d|state\.scene\.contextD|scene\.contextD|ringsToPathData\()/);
     }
     assert.ok(!/setAttribute\(\s*'d'/.test(source));
   });
@@ -312,11 +343,29 @@ describe('reveal', () => {
     view.reveal({ target: 'za', picked: 'na', correct: false, names });
     assert.equal(byClass(view.svg, 'map-picked').length, 1);
     const labels = all(view.svg, (n) => n.tag === 'text');
-    const expected = ['za', ...meta.entries.za.neighbours].filter((c) => geometry.entries[c]);
+    const inFrame = ([x, y]) => x >= FRAME[0] && x <= FRAME[2] && y >= FRAME[1] && y <= FRAME[3];
+    const expected = ['za', ...meta.entries.za.neighbours].filter((c) => geometry.entries[c] && inFrame(geometry.entries[c].label));
     assert.deepEqual(labels.map((n) => n.text).sort(), expected.map((c) => names[c]).sort());
     const za = labels.find((n) => n.text === 'South Africa');
     assert.equal(za.attrs.x, String(geometry.entries.za.label[0]));
     assert.equal(za.attrs.y, String(geometry.entries.za.label[1]));
+  });
+
+  it('is idempotent: a second reveal does not duplicate labels', () => {
+    const view = makeView();
+    view.render({ ...baseInput, target: 'za' });
+    const input = { target: 'za', picked: 'na', correct: false, names };
+    view.reveal(input);
+    const count = all(view.svg, (n) => n.tag === 'text').length;
+    view.reveal(input);
+    assert.equal(all(view.svg, (n) => n.tag === 'text').length, count);
+    assert.equal(byClass(view.svg, 'map-picked').length, 1);
+  });
+
+  it('rejects a target that differs from the rendered one', () => {
+    const view = makeView();
+    view.render({ ...baseInput, target: 'za' });
+    assert.throws(() => view.reveal({ target: 'na', correct: true, names }), /given to `render`/);
   });
 
   it('validates input and requires a render first', () => {
