@@ -1,0 +1,541 @@
+{
+  "meta": {
+    "source": {},
+    "continents": [
+      "africa",
+      "asia",
+      "europe",
+      "north-america",
+      "south-america",
+      "oceania"
+    ],
+    "subregions": {
+      "northern-africa": "africa",
+      "western-africa": "africa",
+      "middle-africa": "africa",
+      "eastern-africa": "africa",
+      "southern-africa": "africa",
+      "northern-america": "north-america",
+      "central-america": "north-america",
+      "caribbean": "north-america",
+      "south-america": "south-america",
+      "central-asia": "asia",
+      "eastern-asia": "asia",
+      "south-eastern-asia": "asia",
+      "southern-asia": "asia",
+      "western-asia": "asia",
+      "northern-europe": "europe",
+      "western-europe": "europe",
+      "eastern-europe": "europe",
+      "southern-europe": "europe",
+      "australia-and-new-zealand": "oceania",
+      "melanesia": "oceania",
+      "micronesia": "oceania",
+      "polynesia": "oceania"
+    },
+    "policy": {},
+    "excluded": {}
+  },
+  "countries": [
+    {
+      "code": "as",
+      "name": "American Samoa",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "polynesia",
+      "sovereign": false,
+      "parentCode": "us",
+      "quizzed": true
+    },
+    {
+      "code": "au",
+      "name": "Australia",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "australia-and-new-zealand",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "be",
+      "name": "Belgium",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "western-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "bf",
+      "name": "Burkina Faso",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "bj",
+      "name": "Benin",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ca",
+      "name": "Canada",
+      "aliases": [],
+      "continent": "north-america",
+      "subregion": "northern-america",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ch",
+      "name": "Switzerland",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "western-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ci",
+      "name": "Côte d'Ivoire",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ck",
+      "name": "Cook Islands",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "polynesia",
+      "sovereign": false,
+      "parentCode": "nz",
+      "quizzed": true
+    },
+    {
+      "code": "cn",
+      "name": "China",
+      "aliases": [],
+      "continent": "asia",
+      "subregion": "eastern-asia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "cu",
+      "name": "Cuba",
+      "aliases": [],
+      "continent": "north-america",
+      "subregion": "caribbean",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "de",
+      "name": "Germany",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "western-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "dz",
+      "name": "Algeria",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "northern-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "eg",
+      "name": "Egypt",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "northern-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "eh",
+      "name": "Western Sahara",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "northern-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": false
+    },
+    {
+      "code": "es",
+      "name": "Spain",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "southern-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "fj",
+      "name": "Fiji",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "melanesia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "fr",
+      "name": "France",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "western-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "gh",
+      "name": "Ghana",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "gr",
+      "name": "Greece",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "southern-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "gt",
+      "name": "Guatemala",
+      "aliases": [],
+      "continent": "north-america",
+      "subregion": "central-america",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "gu",
+      "name": "Guam",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "micronesia",
+      "sovereign": false,
+      "parentCode": "us",
+      "quizzed": true
+    },
+    {
+      "code": "hk",
+      "name": "Hong Kong",
+      "aliases": [],
+      "continent": "asia",
+      "subregion": "eastern-asia",
+      "sovereign": false,
+      "parentCode": "cn",
+      "quizzed": true
+    },
+    {
+      "code": "it",
+      "name": "Italy",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "southern-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "jm",
+      "name": "Jamaica",
+      "aliases": [],
+      "continent": "north-america",
+      "subregion": "caribbean",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "jp",
+      "name": "Japan",
+      "aliases": [],
+      "continent": "asia",
+      "subregion": "eastern-asia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "kr",
+      "name": "South Korea",
+      "aliases": [],
+      "continent": "asia",
+      "subregion": "eastern-asia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ma",
+      "name": "Morocco",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "northern-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ml",
+      "name": "Mali",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "mo",
+      "name": "Macao",
+      "aliases": [],
+      "continent": "asia",
+      "subregion": "eastern-asia",
+      "sovereign": false,
+      "parentCode": "cn",
+      "quizzed": true
+    },
+    {
+      "code": "mx",
+      "name": "Mexico",
+      "aliases": [],
+      "continent": "north-america",
+      "subregion": "central-america",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ne",
+      "name": "Niger",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ng",
+      "name": "Nigeria",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "nl",
+      "name": "Netherlands",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "western-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "no",
+      "name": "Norway",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "northern-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "nu",
+      "name": "Niue",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "polynesia",
+      "sovereign": false,
+      "parentCode": "nz",
+      "quizzed": true
+    },
+    {
+      "code": "nz",
+      "name": "New Zealand",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "australia-and-new-zealand",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "pg",
+      "name": "Papua New Guinea",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "melanesia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "pr",
+      "name": "Puerto Rico",
+      "aliases": [],
+      "continent": "north-america",
+      "subregion": "caribbean",
+      "sovereign": false,
+      "parentCode": "us",
+      "quizzed": true
+    },
+    {
+      "code": "pt",
+      "name": "Portugal",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "southern-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "se",
+      "name": "Sweden",
+      "aliases": [],
+      "continent": "europe",
+      "subregion": "northern-europe",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "sn",
+      "name": "Senegal",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "tg",
+      "name": "Togo",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "western-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "tk",
+      "name": "Tokelau",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "polynesia",
+      "sovereign": false,
+      "parentCode": "nz",
+      "quizzed": true
+    },
+    {
+      "code": "tn",
+      "name": "Tunisia",
+      "aliases": [],
+      "continent": "africa",
+      "subregion": "northern-africa",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "to",
+      "name": "Tonga",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "polynesia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "tv",
+      "name": "Tuvalu",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "polynesia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "tw",
+      "name": "Taiwan",
+      "aliases": [],
+      "continent": "asia",
+      "subregion": "eastern-asia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "us",
+      "name": "United States",
+      "aliases": [],
+      "continent": "north-america",
+      "subregion": "northern-america",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    },
+    {
+      "code": "ws",
+      "name": "Samoa",
+      "aliases": [],
+      "continent": "oceania",
+      "subregion": "polynesia",
+      "sovereign": true,
+      "parentCode": null,
+      "quizzed": true
+    }
+  ]
+}
