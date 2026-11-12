@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 import {
+  FRAME_PADDING,
   SMALL_FRAME_WIDTH_PX,
   SMALL_LIMIT_PX,
   buildMapMeta,
   computeFrame,
-  getExtent,
   isSmall,
   projectLonLatBox
 } from '../scripts/build-map-meta.js';
@@ -98,28 +98,31 @@ describe('frames', () => {
     }
   });
 
-  it('keep every sub-region frame within its continent projection extent', () => {
+  it('keep every sub-region frame within its continent frame, padded once more', () => {
+    // A sub-region's box is part of the continent's box, so its padded frame
+    // exceeds the continent frame by at most FRAME_PADDING of the continent
+    // frame's longer side.
     for (const [subregion, continent] of Object.entries(meta.subregions)) {
-      const extent = getExtent(files[continent]);
+      const outer = frames[continent];
+      const slack = FRAME_PADDING * Math.max(outer[2] - outer[0], outer[3] - outer[1]);
       const frame = frames[subregion];
-      assert.ok(frame[0] >= extent[0] && frame[1] >= extent[1] && frame[2] <= extent[2] && frame[3] <= extent[3],
-        `${subregion} leaves the ${continent} extent ${extent}`);
-    }
-    for (const continent of meta.continents) {
-      const extent = getExtent(files[continent]);
-      const frame = frames[continent];
-      assert.ok(frame[0] >= extent[0] && frame[1] >= extent[1] && frame[2] <= extent[2] && frame[3] <= extent[3], continent);
+      assert.ok(frame[0] >= outer[0] - slack && frame[1] >= outer[1] - slack && frame[2] <= outer[2] + slack && frame[3] <= outer[3] + slack,
+        `${subregion} leaves the ${continent} frame`);
     }
   });
 
-  it('keep every sub-region frame within its continent frame, except where padding was clamped', () => {
-    // A sub-region box is part of the continent box, so its padded frame can
-    // exceed the continent frame by at most the difference in padding.
-    for (const [subregion, continent] of Object.entries(meta.subregions)) {
-      const outer = frames[continent];
-      const slack = 0.04 * Math.max(outer[2] - outer[0], outer[3] - outer[1]);
-      const frame = frames[subregion];
-      assert.ok(frame[0] >= outer[0] - slack && frame[1] >= outer[1] - slack && frame[2] <= outer[2] + slack && frame[3] <= outer[3] + slack, subregion);
+  it('keep the padding on every side of every quizzed bbox', () => {
+    for (const { code, continent, subregion, quizzed } of countries) {
+      if (!quizzed) continue;
+      const bbox = files[continent].entries[code].bbox;
+      for (const key of new Set([continent, subregion])) {
+        if (FRAME_OVERRIDES[key]?.clip?.[code]) continue;
+        const frame = frames[key];
+        const longer = Math.max(frame[2] - frame[0], frame[3] - frame[1]) / (1 + 2 * FRAME_PADDING);
+        const pad = Math.floor(FRAME_PADDING * longer) - 1;
+        assert.ok(bbox[0] - frame[0] >= pad && bbox[1] - frame[1] >= pad && frame[2] - bbox[2] >= pad && frame[3] - bbox[3] >= pad,
+          `${code} is closer than the padding to the ${key} frame edge`);
+      }
     }
   });
 
@@ -190,9 +193,8 @@ describe('frame helpers', () => {
     assert.deepEqual(computeFrame(file, ['aa', 'bb']), [100 - 32, 100 - 32, 900 + 32, 800 + 32]);
   });
 
-  it('clamps the padded frame to the extent of the file', () => {
-    assert.deepEqual(getExtent(file), [0, 0, 1000, 1000]);
-    assert.deepEqual(computeFrame(file, ['cc']), [0, 0, 1000, 1000]);
+  it('does not clamp the padded frame', () => {
+    assert.deepEqual(computeFrame(file, ['cc']), [-40, -40, 1040, 1040]);
   });
 
   it('rejects bad input', () => {

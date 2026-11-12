@@ -17,8 +17,9 @@
 //   A frame is in the coordinate space of its continent's geometry file. It is
 //   the bounding box of the quizzed entries of the continent (or sub-region),
 //   padded on every side by FRAME_PADDING of the box's longer side, rounded to
-//   integers and clamped to the file's extent (the box [0, 0, maxX, maxY] of
-//   all its entries, context ones included). `south-america` is both a
+//   integers. It is not clamped: the file's origin is its entries' extent, so
+//   a frame may reach past 0 or the extent's far edge into open sea, which is
+//   what keeps the padding on every side. `south-america` is both a
 //   continent and a sub-region and has one frame.
 //   `scripts/frame-overrides.js` can crop individual entries out of a frame's
 //   box before padding.
@@ -48,22 +49,6 @@ export const SMALL_FRAME_WIDTH_PX = 375;
 export const SMALL_LIMIT_PX = 12;
 
 // ---- Geometry helpers ----
-
-/**
- * Union of every entry's bbox, as the box [0, 0, maxX, maxY] of a file.
- * @param {{entries: Record<string, {bbox: number[]}>}} file
- * @returns {number[]} [0, 0, maxX, maxY]
- */
-export function getExtent(file) {
-  if (!file || typeof file.entries !== 'object') throw new TypeError('`file` must have `entries`.');
-  let maxX = 0;
-  let maxY = 0;
-  for (const { bbox } of Object.values(file.entries)) {
-    maxX = Math.max(maxX, bbox[2]);
-    maxY = Math.max(maxY, bbox[3]);
-  }
-  return [0, 0, maxX, maxY];
-}
 
 /**
  * Bounding box, in a file's coordinate space, of a lon/lat box (its edges
@@ -134,13 +119,7 @@ export function computeFrame(file, codes, clip = {}) {
     box[3] = Math.max(box[3], bbox[3]);
   }
   const pad = FRAME_PADDING * Math.max(box[2] - box[0], box[3] - box[1]);
-  const extent = getExtent(file);
-  return [
-    Math.max(extent[0], Math.round(box[0] - pad)),
-    Math.max(extent[1], Math.round(box[1] - pad)),
-    Math.min(extent[2], Math.round(box[2] + pad)),
-    Math.min(extent[3], Math.round(box[3] + pad))
-  ];
+  return [Math.round(box[0] - pad), Math.round(box[1] - pad), Math.round(box[2] + pad), Math.round(box[3] + pad)];
 }
 
 /**
@@ -174,7 +153,7 @@ export function serialiseMapMeta(meta) {
 /**
  * Build `data/map-meta.json` from the inputs.
  * @param {string} [root] repository root
- * @returns {{text: string, meta: object, overrides: string[]}} file text, parsed contents, overridden frame keys
+ * @returns {{text: string, meta: object, files: Record<string, object>, overrides: string[]}} file text, parsed contents, continent geometry files, overridden frame keys
  */
 export function buildMapMeta(root = ROOT) {
   if (typeof root !== 'string') throw new TypeError('`root` must be a path string.');
@@ -210,26 +189,28 @@ export function buildMapMeta(root = ROOT) {
   for (const country of countries) {
     const bbox = files[country.continent].entries[country.code].bbox;
     const small = isSmall(bbox, frames[country.subregion]);
+    if (!Array.isArray(neighbours[country.code])) throw new RangeError(`\`${country.code}\` has no neighbours entry.`);
     entries[country.code] = { neighbours: neighbours[country.code], small, tappable: !small };
   }
   const meta = { frames, entries };
-  return { text: serialiseMapMeta(meta), meta, overrides: Object.keys(FRAME_OVERRIDES) };
+  return { text: serialiseMapMeta(meta), meta, files, overrides: Object.keys(FRAME_OVERRIDES) };
 }
 
 /**
- * True when this module is the entry point, also through a symlink.
+ * True when the module at `moduleUrl` is the entry point, also through a symlink.
+ * @param {string} moduleUrl the caller's `import.meta.url`
  * @returns {boolean}
  */
-function isEntryPoint() {
+export function isEntryPoint(moduleUrl) {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(moduleUrl));
   } catch {
     return false;
   }
 }
 
-if (isEntryPoint()) {
+if (isEntryPoint(import.meta.url)) {
   const { text, meta } = buildMapMeta();
   if (process.argv.includes('--check')) {
     let current = '';

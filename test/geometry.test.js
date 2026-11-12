@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -23,10 +23,16 @@ const { countries } = JSON.parse(read('data/countries.json'));
 const files = Object.fromEntries(
   [...CONTINENTS, 'world'].map((name) => [name, JSON.parse(read(`data/geometry/${name}.json`))])
 );
-// One build serves the regeneration test and the neighbour tests. The
-// neighbours are written to data/map-meta.json by scripts/build-map-meta.js.
-const built = buildGeometryFull(ROOT);
-const { land, neighbours } = built;
+// One build (in `before()`) serves the regeneration test and the neighbour
+// tests. The neighbours are written to data/map-meta.json by
+// scripts/build-map-meta.js.
+let built;
+let land;
+let neighbours;
+before(() => {
+  built = buildGeometryFull(ROOT);
+  ({ land, neighbours } = built);
+});
 
 /** Project [lon, lat] into a file's integer coordinate space (unrounded). */
 function toFile(name, lon, lat) {
@@ -88,9 +94,8 @@ function overlaps(a, b, margin = 0) {
 }
 
 describe('geometry regeneration', () => {
-  const { outputs } = built;
-
   it('is byte for byte what the generator produces', () => {
+    const { outputs } = built;
     assert.equal(outputs.size, 7, 'six continents and world.json');
     for (const [path, text] of outputs) {
       assert.equal(read(path), text, `${path} is out of date: run \`node scripts/build-geometry.js\``);
@@ -261,9 +266,11 @@ describe('shared borders', () => {
   for (const name of [...CONTINENTS, 'world']) {
     const entries = files[name].entries;
     const pairs = [];
-    for (const [a, list] of Object.entries(land)) {
-      for (const b of list) if (a < b && entries[a] && entries[b]) pairs.push([a, b]);
-    }
+    before(() => {
+      for (const [a, list] of Object.entries(land)) {
+        for (const b of list) if (a < b && entries[a] && entries[b]) pairs.push([a, b]);
+      }
+    });
     const owners = edgeOwners(entries);
 
     it(`${name}.json: no edge has more than two owners, or one owner twice`, () => {

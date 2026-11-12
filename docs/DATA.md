@@ -222,11 +222,11 @@ node --test
 ```
 
 - **Frames** are in the coordinate space of the continent's geometry file (integer units, `scale` per km). There are 27: the six continents and the 22 sub-regions, where `south-america` is both and has one frame.
-  - A frame is the bounding box of the continent's (or sub-region's) **quizzed** entries, padded on every side by **4% of the box's longer side** (`FRAME_PADDING`), rounded, and clamped to the file's extent, the box `[0, 0, maxX, maxY]` of all its entries, context ones included. So a frame never leaves the file's coordinate space, and a padded frame is cut flat on a side where its land touches the extent.
+  - A frame is the bounding box of the continent's (or sub-region's) **quizzed** entries, padded on every side by **4% of the box's longer side** (`FRAME_PADDING`), and rounded. It is **not** clamped to the file's extent, so every side keeps its padding (a 9 px marker circle on the easternmost Caribbean island fits); a frame may reach past 0 or the extent's far edge into open sea.
   - Frames are not forced to any aspect ratio; the renderer fits them.
   - **Overrides** (`scripts/frame-overrides.js`, each with a one-line reason) crop single entries to a lon/lat box before the box is padded. The entry itself is untouched; the renderer clips it at the frame edge. Current rows: `europe` and `eastern-europe` crop Russia at 60°E so they stop at the Urals; `europe` and `southern-europe` crop Spain and Portugal to the mainland so the Canary Islands, Madeira and the Azores do not stretch them. The Europe frame still contains Svalbard and Iceland, because those are quizzed.
 - **`small`**: the entry's bbox, at its sub-region frame rendered 375 CSS px wide, is under 12 × 12 CSS px (both sides, strictly). It uses the bbox, so a country of far-apart islands (Kiribati, the Marshall Islands) is not small. `tappable` is `!small`.
-- **`neighbours`** is carried over unchanged from the geometry build; see "Neighbours" above.
+- **`neighbours`** is carried over unchanged from the geometry build; see "Neighbours" above. Maritime parameters (`MARITIME_NEIGHBOURS` in `scripts/country-overrides.js`): an island with no land neighbour gets its nearest **3** entries within **1,500 km**, or its **single nearest** entry when none is that close; the relation is then made symmetric. The generator throws if any entry has no neighbour list.
 
 ## Contact sheet
 

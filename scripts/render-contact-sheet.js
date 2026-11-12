@@ -20,7 +20,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { FRAME_OVERRIDES } from './frame-overrides.js';
-import { SMALL_FRAME_WIDTH_PX } from './build-map-meta.js';
+import { SMALL_FRAME_WIDTH_PX, buildMapMeta, isEntryPoint } from './build-map-meta.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT_DIR = resolve(ROOT, '.tmp/contact-sheet');
@@ -152,7 +152,7 @@ export function renderSmallEntries(small, files, frames, meta) {
     ].join('\n');
 
     // Inset panel: zoomed so the entry is a quarter of the panel, at least 20 km across.
-    const side = Math.max(4 * Math.max(entry.bbox[2] - entry.bbox[0], entry.bbox[3] - entry.bbox[1]), 2 * file.scale * 100);
+    const side = Math.max(4 * Math.max(entry.bbox[2] - entry.bbox[0], entry.bbox[3] - entry.bbox[1]), 2 * file.scale * 10);
     const cx = (entry.bbox[0] + entry.bbox[2]) / 2;
     const cy = (entry.bbox[1] + entry.bbox[3]) / 2;
     const insetWindow = [cx - side / 2, cy - side / 2, cx + side / 2, cy + side / 2];
@@ -186,7 +186,7 @@ export function renderSmallEntries(small, files, frames, meta) {
  */
 export function renderIndex(tiles) {
   const figures = tiles
-    .map((tile) => `<figure><img src="${escapeXml(tile.file)}" alt="${escapeXml(tile.caption)}"><figcaption>${escapeXml(tile.caption)}</figcaption></figure>`)
+    .map((tile) => `<figure${tile.wide ? ' class="wide"' : ''}><img src="${escapeXml(tile.file)}" alt="${escapeXml(tile.caption)}"><figcaption>${escapeXml(tile.caption)}</figcaption></figure>`)
     .join('\n');
   return `<!doctype html>
 <html lang="en">
@@ -198,6 +198,7 @@ body { font: 14px monospace; margin: 16px; background: #fafafa; }
 main { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
 figure { margin: 0; border: 1px solid #ccc; background: #fff; padding: 6px; max-width: 620px; }
 figure.wide { max-width: none; }
+figure.wide img { max-width: none; }
 img { display: block; max-width: 100%; height: auto; }
 figcaption { padding-top: 6px; }
 </style>
@@ -215,10 +216,9 @@ ${figures}
 /** Render every file into `.tmp/contact-sheet/`. */
 function main() {
   const { meta: countriesMeta, countries } = JSON.parse(readFileSync(resolve(ROOT, 'data/countries.json'), 'utf8'));
-  const { frames, entries } = JSON.parse(readFileSync(resolve(ROOT, 'data/map-meta.json'), 'utf8'));
-  const files = Object.fromEntries(
-    countriesMeta.continents.map((c) => [c, JSON.parse(readFileSync(resolve(ROOT, `data/geometry/${c}.json`), 'utf8'))])
-  );
+  // Built in memory, so the sheet shows what the generators produce now, not a stale committed file.
+  const { meta: mapMeta, files } = buildMapMeta(ROOT);
+  const { frames, entries } = mapMeta;
   const meta = new Map(countries.map((country) => [country.code, country]));
   const continentOf = (key) => (countriesMeta.continents.includes(key) ? key : countriesMeta.subregions[key]);
 
@@ -236,10 +236,10 @@ function main() {
 
   const small = countries.filter((country) => entries[country.code].small);
   writeFileSync(resolve(OUT_DIR, 'small-entries.svg'), renderSmallEntries(small, files, frames, meta));
-  tiles.push({ file: 'small-entries.svg', caption: `small entries (${small.length}): circle marker, inset` });
+  tiles.push({ wide: true, file: 'small-entries.svg', caption: `small entries (${small.length}): circle marker, inset` });
 
   writeFileSync(resolve(OUT_DIR, 'index.html'), renderIndex(tiles));
   console.log(`Wrote ${tiles.length} SVGs and index.html to .tmp/contact-sheet/.`);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (isEntryPoint(import.meta.url)) main();
