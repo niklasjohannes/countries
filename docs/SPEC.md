@@ -352,12 +352,14 @@ Write `js/map.js`:
 
 - `ringsToPathData`, which outputs a numeric path string only.
 - `hitTest(point, entries, frame, viewportPx)`. It returns `{ code }` if the point is inside a polygon, or the nearest tappable entry within `TAP_TOLERANCE_PX`. When the second-nearest is within `AMBIGUITY_RATIO` of the nearest, it returns `{ ambiguous: [a, b] }`, and otherwise `null`. Use point-in-polygon with holes, and point-to-segment distance.
-- `computeInset(entry, frame)`.
+  - `point` is `[x, y]` in frame units, and `entries` is keyed by code as `{ rings, tappable, bbox? }`.
+  - `viewportPx` is `{ width, height }`, the CSS px size of the SVG box that draws `frame` with `preserveAspectRatio` `meet`. The scale is `min(width / frameWidth, height / frameHeight)` CSS px per unit (`getPxPerUnit`). The full contract is in the `js/map.js` header.
+- `computeInset(entry, frame, viewportPx)` returns `{ marker: { cx, cy, r }, source, target }`: a circle marker of at least `MARKER_MIN_RADIUS_PX`, the padded square to magnify, and the inset box in the frame corner farthest from the entry.
 
 Write `js/cards.js`:
 
 - `pickDirection(entry, rng)`, using `TAP_CARD_SHARE` and only for tappable entries.
-- `pickFrame(state, entry)`: the sub-region frame, or the continent frame when `intervalDays ≥ MATURE_INTERVAL_DAYS`.
+- `pickFrame(state, entry, direction)` returns a key into `frames`. Name → tap cards always use the sub-region frame, because `tappable`/`small` are measured at that zoom. Map → name cards use the sub-region frame, or the continent frame when `intervalDays ≥ MATURE_INTERVAL_DAYS`.
 
 Both modules are pure, with `rng` injected, as in CONVENTIONS.
 

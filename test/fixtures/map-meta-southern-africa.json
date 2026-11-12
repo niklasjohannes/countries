@@ -1,0 +1,11 @@
+{"frames":{"africa":[0,0,103400,98300],"eastern-africa":[50000,30000,90000,75000],"southern-africa":[37000,59000,64000,80500]},
+"entries":{
+"bw":{"neighbours":["na","za","zw"],"small":false,"tappable":true},
+"km":{"neighbours":["mz"],"small":true,"tappable":false},
+"ls":{"neighbours":["za"],"small":false,"tappable":true},
+"mz":{"neighbours":["km","sz","za","zw"],"small":false,"tappable":true},
+"na":{"neighbours":["bw","za"],"small":false,"tappable":true},
+"sz":{"neighbours":["mz","za"],"small":false,"tappable":true},
+"za":{"neighbours":["bw","ls","mz","na","sz","zw"],"small":false,"tappable":true},
+"zw":{"neighbours":["bw","mz","za"],"small":false,"tappable":true}
+}}
