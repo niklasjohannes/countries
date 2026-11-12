@@ -74,3 +74,20 @@
 .map-label-target {
   font-weight: bold;
 }
+
+/* Candidates of an ambiguous tap: outlined, with a digit at their label point. */
+.map-candidate {
+  fill: var(--map-land);
+  stroke: var(--color-text);
+  stroke-width: 2.5px;
+}
+
+.map-candidate-marker {
+  fill: var(--color-text);
+  stroke: var(--color-bg);
+  stroke-linejoin: round;
+  paint-order: stroke;
+  font-family: var(--font-sans);
+  font-weight: bold;
+  pointer-events: none;
+}

@@ -54,6 +54,7 @@ class FakeNode {
   append(...nodes) { this.children.push(...nodes); }
   insertBefore(node, ref) { this.children.splice(this.children.indexOf(ref), 0, node); }
   replaceChildren() { this.children = []; }
+  removeChild(node) { this.children = this.children.filter((child) => child !== node); }
   set textContent(value) { this.text = String(value); }
   get textContent() { return this.text; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
@@ -449,5 +450,110 @@ describe('taps', () => {
     view.destroy();
     view.svg.dispatch('click', toClient(geometry.entries.za.label, layout));
     assert.deepEqual(events, []);
+  });
+});
+
+describe('candidates of an ambiguous tap', () => {
+  const tokens = (text) => new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+  const eastern = { ...baseInput, frame: meta.frames['eastern-africa'] };
+  const texts = (view) => all(view.svg, (n) => n.tag === 'text').map((n) => n.text);
+
+  it('outlines both and numbers them "1" and "2" at their label points', () => {
+    const view = makeView();
+    view.render({ ...baseInput, interactive: true });
+    view.markCandidates(['ls', 'za']);
+    assert.equal(byClass(view.svg, 'map-candidate').length, 2);
+    const markers = byClass(view.svg, 'map-candidate-marker');
+    assert.deepEqual(markers.map((n) => n.text), ['1', '2']);
+    assert.deepEqual(markers.map((n) => [Number(n.attrs.x), Number(n.attrs.y)]), [geometry.entries.ls.label, geometry.entries.za.label]);
+    assert.ok(markers.every((n) => Number(n.attrs['font-size']) > 0));
+  });
+
+  it('leaks no names or codes while the candidates are shown', () => {
+    for (const target of [null, 'za']) {
+      const view = makeView();
+      view.render({ ...baseInput, target, interactive: true });
+      view.markCandidates(['za', 'ls']);
+      const values = serialiseValues(view.element);
+      const found = tokens(values);
+      for (const { code, name, aliases } of countries) {
+        assert.ok(!found.has(code), `code ${code} in DOM`);
+        for (const label of [name, ...aliases]) {
+          assert.ok(!values.toLowerCase().includes(label.toLowerCase()), `name ${label} in DOM`);
+        }
+      }
+      assert.deepEqual(texts(view), ['1', '2']);
+      assert.equal(all(view.element, (n) => Object.keys(n.attrs).some((a) => a.startsWith('data-'))).length, 0);
+      assert.equal(all(view.element, (n) => 'id' in n.attrs || 'title' in n.attrs).length, 0);
+    }
+  });
+
+  it('clearCandidates removes the outlines and markers and keeps the target filled', () => {
+    const view = makeView();
+    view.render({ ...baseInput, target: 'za' });
+    view.markCandidates(['za', 'ls']);
+    view.clearCandidates();
+    assert.equal(byClass(view.svg, 'map-candidate').length, 0);
+    assert.equal(byClass(view.svg, 'map-candidate-marker').length, 0);
+    assert.equal(byClass(view.svg, 'map-target').length, 1);
+    assert.deepEqual(texts(view), []);
+    view.clearCandidates();
+  });
+
+  it('replaces earlier candidates', () => {
+    const view = makeView();
+    view.render(baseInput);
+    view.markCandidates(['za', 'ls']);
+    view.markCandidates(['na', 'bw']);
+    assert.equal(byClass(view.svg, 'map-candidate').length, 2);
+    assert.equal(byClass(view.svg, 'map-candidate-marker').length, 2);
+  });
+
+  it('is cleared by the reveal, which then labels with names', () => {
+    const view = makeView();
+    view.render({ ...baseInput, interactive: true });
+    view.markCandidates(['za', 'ls']);
+    view.reveal({ target: 'za', picked: 'ls', correct: false, names: { za: 'South Africa', ls: 'Lesotho' } });
+    assert.equal(byClass(view.svg, 'map-candidate-marker').length, 0);
+    assert.ok(!texts(view).includes('1'));
+    assert.ok(texts(view).includes('South Africa'));
+  });
+
+  it('shows a small candidate in an inset, with its number, never filled as a target', () => {
+    const view = makeView();
+    view.render({ ...eastern, interactive: true });
+    view.markCandidates(['mz', 'km']);
+    const [inset] = byClass(view.svg, 'map-inset');
+    assert.ok(inset !== undefined);
+    assert.equal(byClass(inset, 'map-target').length, 0);
+    assert.ok(byClass(inset, 'map-candidate').length >= 1);
+    assert.deepEqual(byClass(inset, 'map-candidate-marker').map((n) => n.text), ['2']);
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    assert.ok(Number(byClass(inset, 'map-candidate-marker')[0].attrs['font-size']) > 0);
+
+    view.clearCandidates();
+    assert.equal(byClass(view.svg, 'map-inset').length, 0);
+    assert.equal(byClass(view.svg, 'map-marker').length, 0);
+  });
+
+  it('keeps a small target\'s inset when the candidates are cleared', () => {
+    const view = makeView();
+    view.render({ ...eastern, target: 'km' });
+    view.markCandidates(['mz', 'zw']);
+    view.clearCandidates();
+    const [inset] = byClass(view.svg, 'map-inset');
+    assert.equal(byClass(inset, 'map-target').length, 1);
+    assert.equal(byClass(inset, 'map-candidate').length, 0);
+    assert.equal(byClass(inset, 'map-candidate-marker').length, 0);
+  });
+
+  it('validates input and requires a render first', () => {
+    const view = makeView();
+    assert.throws(() => view.markCandidates(['za', 'ls']), /`render`/);
+    view.render(baseInput);
+    assert.throws(() => view.markCandidates(['za']), /`codes`/);
+    assert.throws(() => view.markCandidates(['za', 'za']), /`codes`/);
+    assert.throws(() => view.markCandidates(['za', 'km']), /drawn in the current frame/);
+    view.clearCandidates();
   });
 });

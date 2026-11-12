@@ -12,6 +12,13 @@
 // reach the DOM only through `reveal()`, as label `textContent`. The region
 // around the map has one generic `aria-label`.
 //
+// Ambiguous taps: `markCandidates([a, b])` outlines both candidates and puts
+// neutral numbered markers "1" and "2" at their label points (digits only, via
+// `textContent`: no name or code), so the caller can ask "which did you mean?"
+// without naming anything. A small candidate (at the frame level on screen) is
+// also shown in the inset, with its marker; only the first small one gets the
+// inset. `clearCandidates()` (or `reveal`) takes it all away.
+//
 // Layers, back to front: `context` land of other continents (lighter grey,
 // never highlighted, labelled or tappable, never passed to `hitTest`), the
 // frame's own land, the target fill and wrong-pick outline, the circle marker
@@ -35,6 +42,9 @@ export const FRAME_LEVEL_CONTINENT = 'continent';
 /** Label size and halo width, in CSS px. */
 export const LABEL_FONT_PX = 12;
 export const LABEL_HALO_PX = 3;
+
+/** Size of the candidate number markers, in CSS px. */
+export const CANDIDATE_FONT_PX = 18;
 
 /** Generic label of the question region; never names the country. */
 export const REGION_LABEL = 'Map question';
@@ -254,11 +264,22 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       label.setAttribute('font-size', LABEL_FONT_PX / pxPerUnit);
       label.setAttribute('stroke-width', LABEL_HALO_PX / pxPerUnit);
     }
+    const sizeMarker = (text, unitsPerPx) => {
+      text.setAttribute('font-size', CANDIDATE_FONT_PX * unitsPerPx);
+      text.setAttribute('stroke-width', LABEL_HALO_PX * unitsPerPx);
+    };
+    state.markers.forEach((text) => sizeMarker(text, 1 / pxPerUnit));
+    if (state.inset !== null) {
+      // The inset maps its square source into its square target.
+      const { source, target } = computeInset(state.inset.entry, state.frame, viewport);
+      const insetPxPerUnit = pxPerUnit * ((target[2] - target[0]) / (source[2] - source[0]));
+      state.inset.markers.forEach((text) => sizeMarker(text, 1 / insetPxPerUnit));
+    }
   }
 
   // Marker and inset for the highlighted target when it is small at this
   // frame. The inset reuses the path data already computed for the scene.
-  function addInset(code) {
+  function addInset(code, kind = 'target') {
     const item = state.byCode.get(code);
     if (item === undefined || !item.small || state.inset !== null) {
       return;
@@ -270,7 +291,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     layer.append(marker, box, insetSvg);
     // Below the labels, which stay frontmost.
     svg.insertBefore(layer, state.layer);
-    state.inset = { code, entry: item, marker, box, insetSvg, sourceKey: null, paths: new Map() };
+    state.inset = { code, kind, layer, entry: item, marker, box, insetSvg, sourceKey: null, paths: new Map(), markers: [] };
   }
 
   // The inset's content depends on its source box, so it is (re)built in
@@ -280,6 +301,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
     const inset = state.inset;
     inset.insetSvg.replaceChildren();
     inset.paths = new Map();
+    inset.markers = [];
     if (state.scene.contextD !== '') {
       inset.insetSvg.append(make('path', { class: 'map-context', d: state.scene.contextD }));
     }
@@ -287,13 +309,69 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       if (!boxesIntersect(other.bbox, source)) {
         continue;
       }
-      const path = make('path', { class: other.code === inset.code ? 'map-land map-target' : 'map-land', d: other.d });
+      const isInsetEntry = other.code === inset.code;
+      const path = make('path', {
+        class: isInsetEntry ? `map-land ${inset.kind === 'candidate' ? 'map-candidate' : 'map-target'}` : 'map-land',
+        d: other.d
+      });
       inset.insetSvg.append(path);
       inset.paths.set(other.code, path);
     }
     if (state.picked !== null && inset.paths.has(state.picked)) {
       inset.paths.get(state.picked).setAttribute('class', 'map-land map-picked');
     }
+    if (state.candidates !== null) {
+      state.candidates.forEach((code, index) => {
+        inset.paths.get(code)?.setAttribute('class', 'map-land map-candidate');
+        const point = markerPoint(code);
+        if (point !== null && inset.paths.has(code)) {
+          const text = make('text', {
+            class: 'map-candidate-marker',
+            x: point[0],
+            y: point[1],
+            'text-anchor': 'middle',
+            'dominant-baseline': 'middle'
+          });
+          text.textContent = String(index + 1);
+          inset.insetSvg.append(text);
+          inset.markers.push(text);
+        }
+      });
+    }
+  }
+
+  // Where a candidate's number goes: its label point, else its bbox centre.
+  function markerPoint(code) {
+    const item = state.byCode.get(code);
+    if (item === undefined) {
+      return null;
+    }
+    if (item.label !== undefined) {
+      return item.label;
+    }
+    return [(item.bbox[0] + item.bbox[2]) / 2, (item.bbox[1] + item.bbox[3]) / 2];
+  }
+
+  function clearCandidates() {
+    if (state === null || state.candidates === null) {
+      return;
+    }
+    for (const code of state.candidates) {
+      const restore = code === state.target ? 'map-land map-target' : 'map-land';
+      state.paths.get(code)?.setAttribute('class', restore);
+    }
+    for (const text of state.markers) {
+      state.layer.removeChild(text);
+    }
+    state.markers = [];
+    state.candidates = null;
+    if (state.inset !== null && state.inset.kind === 'candidate') {
+      svg.removeChild(state.inset.layer);
+      state.inset = null;
+    } else if (state.inset !== null) {
+      state.inset.sourceKey = null;
+    }
+    relayout();
   }
 
   function highlight(code) {
@@ -370,7 +448,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
 
       state = {
         scene, frame, meta, geometry, paths, byCode, hitEntries,
-        interactive, target, picked: null, revealed: false, labels: [], inset: null, layer: make('g', { class: 'map-label-layer' })
+        interactive, target, picked: null, revealed: false, labels: [], inset: null, candidates: null, markers: [], layer: make('g', { class: 'map-label-layer' })
       };
       svg.append(state.layer);
       if (target !== null) {
@@ -408,6 +486,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       }
       state.revealed = true;
       state.interactive = false;
+      clearCandidates();
       highlight(target);
 
       if (picked !== null && picked !== target && state.paths.has(picked)) {
@@ -448,6 +527,64 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       }
       relayout();
     },
+
+    /**
+     * Outlines two candidates of an ambiguous tap and puts the digits "1" and
+     * "2" (in the order given) at their label points. A small candidate also
+     * appears in the inset (the first small one only). No names or codes
+     * reach the DOM. Replaces earlier candidates.
+     *
+     * @param {[string, string]} codes Two distinct entries drawn in the current frame (the `ambiguous` pair of `onAmbiguous`).
+     * @returns {void}
+     */
+    markCandidates(codes) {
+      if (state === null) {
+        throw new Error('`render` must be called before `markCandidates`.');
+      }
+      const isPair = Array.isArray(codes) && codes.length === 2 && codes.every((code) => typeof code === 'string');
+      if (!isPair || codes[0] === codes[1]) {
+        throw new TypeError('`codes` must be an array of two distinct country codes.');
+      }
+      if (!codes.every((code) => state.paths.has(code))) {
+        throw new RangeError('`codes` must be entries drawn in the current frame.');
+      }
+      if (state.revealed) {
+        return;
+      }
+      clearCandidates();
+      state.candidates = [...codes];
+      codes.forEach((code, index) => {
+        state.paths.get(code).setAttribute('class', 'map-land map-candidate');
+        const point = markerPoint(code);
+        if (point !== null) {
+          const text = make('text', {
+            class: 'map-candidate-marker',
+            x: point[0],
+            y: point[1],
+            'text-anchor': 'middle',
+            'dominant-baseline': 'middle'
+          });
+          text.textContent = String(index + 1);
+          state.layer.append(text);
+          state.markers.push(text);
+        }
+      });
+      const small = codes.find((code) => state.byCode.get(code)?.small === true);
+      if (small !== undefined && state.inset === null) {
+        addInset(small, 'candidate');
+      } else if (state.inset !== null) {
+        state.inset.sourceKey = null;
+      }
+      relayout();
+    },
+
+    /**
+     * Removes the candidate outlines, number markers and candidate inset,
+     * leaving the card as it was.
+     *
+     * @returns {void}
+     */
+    clearCandidates,
 
     relayout,
 
