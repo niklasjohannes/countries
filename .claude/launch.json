@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "countries-static",
+      "runtimeExecutable": "/usr/bin/python3",
+      "runtimeArgs": ["scripts/dev_server.py", "8005"],
+      "port": 8005
+    }
+  ]
+}

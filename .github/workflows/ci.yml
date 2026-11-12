@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Pinned to the current Active LTS major.
+          node-version: 24
+
+      # Zero npm dependencies, so there is no install step.
+      # `node --test` with no arguments discovers `**/*.test.{js,mjs,cjs}` (and the
+      # other default patterns) across the repo, and exits 0 when it finds none.
+      - name: Run tests
+        run: node --test
