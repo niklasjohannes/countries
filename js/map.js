@@ -4,8 +4,16 @@
 // coordinates are in the integer space of one geometry file
 // (`data/geometry/<continent>.json`, y grows downwards). A `frame` is a
 // `[x0, y0, x1, y1]` box in that space (from `data/map-meta.json` →
-// `frames`), and `viewportPx` is the width in CSS px that the frame is drawn
-// at, so that tap tolerances stay a fixed physical size on screen.
+// `frames`).
+//
+// Viewport contract (for the renderer, issue 8): `viewportPx` is
+// `{ width, height }`, the CSS px size of the SVG box the frame is drawn
+// into with `viewBox = frame` and the default `preserveAspectRatio`
+// (`xMidYMid meet`). The scale is then `min(width / frameWidth,
+// height / frameHeight)` CSS px per unit (see `getPxPerUnit`), so tap
+// tolerances and markers keep a fixed physical size on screen whether the
+// frame is width- or height-limited. `point` must already be in frame units
+// (e.g. via `getScreenCTM().inverse()`).
 
 // ---- Tunables ----
 
@@ -27,14 +35,18 @@ export const INSET_MARGIN_SHARE = 0.02;
 /** Padding around the entry's bbox inside the inset, as a share of the bbox's longer side (each side). */
 export const INSET_PADDING_SHARE = 0.5;
 
-/** Minimum circle-marker radius, as a share of the frame width (6 CSS px at 375 px). */
-export const MARKER_MIN_RADIUS_SHARE = 0.016;
+/** Minimum circle-marker radius in CSS px. */
+export const MARKER_MIN_RADIUS_PX = 6;
 
 // ---- Validation helpers ----
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+// Rings already validated by `hitTest`, so repeated taps on the same,
+// unchanged geometry skip the per-point checks. Holds no strong references.
+const validatedRings = new WeakSet();
 
 function assertIntegerRings(rings, name) {
   if (!Array.isArray(rings)) {
@@ -47,10 +59,10 @@ function assertIntegerRings(rings, name) {
     ring.forEach((point, j) => {
       const isValid = Array.isArray(point) &&
         point.length === 2 &&
-        Number.isInteger(point[0]) &&
-        Number.isInteger(point[1]);
+        Number.isSafeInteger(point[0]) &&
+        Number.isSafeInteger(point[1]);
       if (!isValid) {
-        throw new TypeError(`\`${name}[${i}][${j}]\` must be an \`[x, y]\` pair of finite integers.`);
+        throw new TypeError(`\`${name}[${i}][${j}]\` must be an \`[x, y]\` pair of safe integers.`);
       }
     });
   });
@@ -79,6 +91,17 @@ function assertBox(box, name, { allowEmpty }) {
   }
 }
 
+function assertViewport(viewportPx) {
+  const isValid = isPlainObject(viewportPx) &&
+    Number.isFinite(viewportPx.width) &&
+    Number.isFinite(viewportPx.height) &&
+    viewportPx.width > 0 &&
+    viewportPx.height > 0;
+  if (!isValid) {
+    throw new TypeError('`viewportPx` must be a `{ width, height }` object of positive finite CSS px.');
+  }
+}
+
 function assertEntries(entries) {
   if (!isPlainObject(entries)) {
     throw new TypeError('`entries` must be an object mapping country codes to `{ rings, tappable }` entries.');
@@ -87,7 +110,13 @@ function assertEntries(entries) {
     if (!isPlainObject(entry)) {
       throw new TypeError(`\`entries.${code}\` must be a \`{ rings, tappable }\` object.`);
     }
-    assertIntegerRings(entry.rings, `entries.${code}.rings`);
+    if (!validatedRings.has(entry.rings)) {
+      assertIntegerRings(entry.rings, `entries.${code}.rings`);
+      validatedRings.add(entry.rings);
+    }
+    if (entry.bbox !== undefined) {
+      assertBox(entry.bbox, `entries.${code}.bbox`, { allowEmpty: true });
+    }
     if (typeof entry.tappable !== 'boolean') {
       throw new TypeError(`\`entries.${code}.tappable\` must be a boolean.`);
     }
@@ -177,7 +206,7 @@ function compareCandidates(a, b) {
  * `setAttribute('d', …)`. A ring's closing point (equal to its first point)
  * is dropped in favour of `Z`.
  *
- * @param {Array<Array<[number, number]>>} rings Rings of integer `[x, y]` points, at least 3 points each.
+ * @param {Array<Array<[number, number]>>} rings Rings of safe-integer `[x, y]` points, at least 3 points each.
  * @returns {string} Path data, e.g. `'M0 0L10 0L10 10Z'`; `''` for no rings.
  */
 export function ringsToPathData(rings) {
@@ -189,6 +218,20 @@ export function ringsToPathData(rings) {
       return `${commands.join('')}Z`;
     })
     .join('');
+}
+
+/**
+ * CSS px per frame unit for a frame drawn into a `viewportPx` box with
+ * `preserveAspectRatio="xMidYMid meet"`: the smaller of the two axis scales.
+ *
+ * @param {[number, number, number, number]} frame The visible `[x0, y0, x1, y1]` box.
+ * @param {{ width: number, height: number }} viewportPx CSS px size of the SVG box.
+ * @returns {number} CSS px per frame unit.
+ */
+export function getPxPerUnit(frame, viewportPx) {
+  assertBox(frame, 'frame', { allowEmpty: false });
+  assertViewport(viewportPx);
+  return Math.min(viewportPx.width / (frame[2] - frame[0]), viewportPx.height / (frame[3] - frame[1]));
 }
 
 /**
@@ -207,21 +250,21 @@ export function ringsToPathData(rings) {
  * Ties are broken by code, so the result is deterministic.
  *
  * @param {[number, number]} point The tap, in the geometry file's coordinate space.
- * @param {Object<string, { rings: Array<Array<[number, number]>>, tappable: boolean }>} entries Entries drawn in the frame, keyed by code.
+ * Rings are validated once per array (cached by identity), so geometry must
+ * not be mutated after the first call. A precomputed `bbox` is used when given.
+ *
+ * @param {Object<string, { rings: Array<Array<[number, number]>>, tappable: boolean, bbox?: [number, number, number, number] }>} entries Entries drawn in the frame, keyed by code.
  * @param {[number, number, number, number]} frame The visible `[x0, y0, x1, y1]` box.
- * @param {number} viewportPx Width in CSS px at which `frame` is rendered.
+ * @param {{ width: number, height: number }} viewportPx CSS px size of the SVG box (see the module header).
  * @returns {{ code: string } | { ambiguous: [string, string] } | null} The hit, an ambiguous pair (nearest first), or `null`.
  */
 export function hitTest(point, entries, frame, viewportPx) {
   assertPoint(point, 'point');
   assertEntries(entries);
-  assertBox(frame, 'frame', { allowEmpty: false });
-  if (!Number.isFinite(viewportPx) || viewportPx <= 0) {
-    throw new RangeError('`viewportPx` must be a positive finite number.');
-  }
+  const pxPerUnit = getPxPerUnit(frame, viewportPx);
 
   const codes = Object.keys(entries).sort();
-  const bounds = new Map(codes.map((code) => [code, boundsOf(entries[code].rings)]));
+  const bounds = new Map(codes.map((code) => [code, entries[code].bbox ?? boundsOf(entries[code].rings)]));
 
   const containing = codes
     .filter((code) => distanceToBox(point, bounds.get(code)) === 0 && containsPoint(entries[code].rings, point))
@@ -234,7 +277,6 @@ export function hitTest(point, entries, frame, viewportPx) {
     return { code: containing[0].code };
   }
 
-  const pxPerUnit = viewportPx / (frame[2] - frame[0]);
   const toleranceUnits = TAP_TOLERANCE_PX / pxPerUnit;
   const candidates = codes
     .filter((code) => entries[code].tappable && distanceToBox(point, bounds.get(code)) <= toleranceUnits)
@@ -255,8 +297,8 @@ export function hitTest(point, entries, frame, viewportPx) {
 /**
  * Lays out the circle marker and zoomed inset for a (small) entry.
  *
- * - `marker`: a circle around the entry, at least `MARKER_MIN_RADIUS_SHARE`
- *   of the frame width in radius, so it stays visible.
+ * - `marker`: a circle around the entry, at least `MARKER_MIN_RADIUS_PX` CSS px
+ *   in radius at the given viewport, so it stays visible.
  * - `source`: a square around the entry's bbox, padded by
  *   `INSET_PADDING_SHARE` of its longer side, i.e. the part of the map the
  *   inset magnifies (its `viewBox`).
@@ -268,23 +310,23 @@ export function hitTest(point, entries, frame, viewportPx) {
  *
  * @param {{ bbox: [number, number, number, number] }} entry A geometry entry.
  * @param {[number, number, number, number]} frame The visible `[x0, y0, x1, y1]` box.
+ * @param {{ width: number, height: number }} viewportPx CSS px size of the SVG box (see the module header).
  * @returns {{ marker: { cx: number, cy: number, r: number }, source: [number, number, number, number], target: [number, number, number, number] }} The inset layout.
  */
-export function computeInset(entry, frame) {
+export function computeInset(entry, frame, viewportPx) {
   if (!isPlainObject(entry)) {
     throw new TypeError('`entry` must be a geometry entry object with a `bbox`.');
   }
   assertBox(entry.bbox, 'entry.bbox', { allowEmpty: true });
-  assertBox(frame, 'frame', { allowEmpty: false });
+  const pxPerUnit = getPxPerUnit(frame, viewportPx);
 
   const [bx0, by0, bx1, by1] = entry.bbox;
   const [fx0, fy0, fx1, fy1] = frame;
-  const frameWidth = fx1 - fx0;
-  const frameShortSide = Math.min(frameWidth, fy1 - fy0);
+  const frameShortSide = Math.min(fx1 - fx0, fy1 - fy0);
   const cx = (bx0 + bx1) / 2;
   const cy = (by0 + by1) / 2;
 
-  const r = Math.max(Math.hypot(bx1 - bx0, by1 - by0) / 2, frameWidth * MARKER_MIN_RADIUS_SHARE);
+  const r = Math.max(Math.hypot(bx1 - bx0, by1 - by0) / 2, MARKER_MIN_RADIUS_PX / pxPerUnit);
 
   const longSide = Math.max(bx1 - bx0, by1 - by0);
   const sourceHalf = longSide > 0 ? (longSide * (1 + 2 * INSET_PADDING_SHARE)) / 2 : r;

@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import {
   AMBIGUITY_RATIO,
   TAP_TOLERANCE_PX,
+  MARKER_MIN_RADIUS_PX,
   computeInset,
+  getPxPerUnit,
   hitTest,
   ringsToPathData,
 } from '../js/map.js';
@@ -26,8 +28,27 @@ const meta = read('map-meta-southern-africa.json');
 
 const FRAME = meta.frames['southern-africa'];
 const FRAME_WIDTH = FRAME[2] - FRAME[0];
-const PHONE_PX = 375;
-const DESKTOP_PX = 1_500;
+const FRAME_HEIGHT = FRAME[3] - FRAME[1];
+// Width-limited: the frame is wider than these boxes are, relative to height.
+const PHONE_PX = { width: 375, height: 400 };
+const DESKTOP_PX = { width: 1_500, height: 1_500 };
+// Height-limited (`meet` letterboxes left and right).
+const SHORT_PX = { width: 375, height: 150 };
+
+// Independent point-to-segment distance, to derive expected results.
+function distanceToEntry([px, py], code) {
+  let best = Infinity;
+  for (const ring of geometry.entries[code].rings) {
+    for (let i = 1; i < ring.length; i += 1) {
+      const [ax, ay] = ring[i - 1];
+      const [bx, by] = ring[i];
+      const lengthSquared = (bx - ax) ** 2 + (by - ay) ** 2;
+      const t = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / lengthSquared));
+      best = Math.min(best, Math.hypot(px - ax - t * (bx - ax), py - ay - t * (by - ay)));
+    }
+  }
+  return best;
+}
 
 function buildEntries(codes = Object.keys(geometry.entries), overrides = {}) {
   return Object.fromEntries(codes.map((code) => [
@@ -110,6 +131,8 @@ describe('ringsToPathData', () => {
     }
     assert.throws(() => ringsToPathData('M0 0'), TypeError);
     assert.throws(() => ringsToPathData([[[0, 0], [1, 1]]]), TypeError);
+    assert.throws(() => ringsToPathData([[[0, 0], [1e21, 0], [1, 1]]]), TypeError);
+    assert.throws(() => ringsToPathData([[[0, 0], [2 ** 53, 0], [1, 1]]]), TypeError);
     assert.throws(() => ringsToPathData([[[0, 0, 0], [1, 0], [1, 1]]]), TypeError);
     assert.throws(() => ringsToPathData([[[0, 0], [1, 0], [1, 1]], 'x']), /`rings\[1\]`/);
   });
@@ -143,9 +166,10 @@ describe('hitTest', () => {
 
   it('returns an ambiguous pair, nearest first, for a tap between two close countries', () => {
     const [x, y] = zaMzCoastalBorderPoint();
-    const result = hitTest([x + 300, y], entries, FRAME, PHONE_PX);
-    assert.ok(result !== null && Array.isArray(result.ambiguous));
-    assert.deepEqual([...result.ambiguous].sort(), ['mz', 'za']);
+    const point = [x + 300, y];
+    const expected = ['mz', 'za'].sort((a, b) => distanceToEntry(point, a) - distanceToEntry(point, b));
+    assert.notEqual(distanceToEntry(point, 'mz'), distanceToEntry(point, 'za'));
+    assert.deepEqual(hitTest(point, entries, FRAME, PHONE_PX), { ambiguous: expected });
   });
 
   it('returns null for a tap far out at sea', () => {
@@ -163,8 +187,8 @@ describe('hitTest', () => {
 
   it('scales the tolerance with the rendered width', () => {
     const [x, y] = westmostPoint('na');
-    const phoneToleranceUnits = TAP_TOLERANCE_PX * FRAME_WIDTH / PHONE_PX;
-    const desktopToleranceUnits = TAP_TOLERANCE_PX * FRAME_WIDTH / DESKTOP_PX;
+    const phoneToleranceUnits = TAP_TOLERANCE_PX * FRAME_WIDTH / PHONE_PX.width;
+    const desktopToleranceUnits = TAP_TOLERANCE_PX * FRAME_WIDTH / DESKTOP_PX.width;
     const between = (phoneToleranceUnits + desktopToleranceUnits) / 2;
     assert.deepEqual(hitTest([x - between, y], entries, FRAME, PHONE_PX), { code: 'na' });
     assert.equal(hitTest([x - between, y], entries, FRAME, DESKTOP_PX), null);
@@ -172,11 +196,32 @@ describe('hitTest', () => {
     assert.deepEqual(hitTest([x - near, y], entries, FRAME, DESKTOP_PX), { code: 'na' });
   });
 
+  it('uses the height scale when a frame is height-limited', () => {
+    assert.equal(getPxPerUnit(FRAME, PHONE_PX), PHONE_PX.width / FRAME_WIDTH);
+    assert.equal(getPxPerUnit(FRAME, SHORT_PX), SHORT_PX.height / FRAME_HEIGHT);
+    const [x, y] = westmostPoint('na');
+    const widthOnlyToleranceUnits = TAP_TOLERANCE_PX * FRAME_WIDTH / SHORT_PX.width;
+    const meetToleranceUnits = TAP_TOLERANCE_PX * FRAME_HEIGHT / SHORT_PX.height;
+    const between = (widthOnlyToleranceUnits + meetToleranceUnits) / 2;
+    assert.deepEqual(hitTest([x - between, y], entries, FRAME, SHORT_PX), { code: 'na' });
+    assert.equal(hitTest([x - meetToleranceUnits - 1, y], entries, FRAME, SHORT_PX), null);
+  });
+
+  it('uses a precomputed `bbox` when given', () => {
+    const withBbox = Object.fromEntries(Object.entries(entries).map(([code, entry]) =>
+      [code, { ...entry, bbox: geometry.entries[code].bbox }]));
+    const [x, y] = zaMzCoastalBorderPoint();
+    for (const point of [geometry.entries.ls.label, [x + 300, y], [FRAME[0] + 100, FRAME[3] - 100]]) {
+      assert.deepEqual(hitTest(point, withBbox, FRAME, PHONE_PX), hitTest(point, entries, FRAME, PHONE_PX));
+    }
+    assert.throws(() => hitTest([0, 0], { za: { ...withBbox.za, bbox: [0, 0, 1] } }, FRAME, PHONE_PX), /`entries.za.bbox`/);
+  });
+
   it('applies the tolerance and ambiguity ratio at their boundaries', () => {
     // Two vertical squares; the tap sits on the x-axis between them.
     const square = (x0) => [[[x0, -10], [x0 + 10, -10], [x0 + 10, 10], [x0, 10], [x0, -10]]];
     const frame = [0, -50, 100, 50];
-    const viewportPx = 100; // 1 CSS px per unit
+    const viewportPx = { width: 100, height: 100 }; // 1 CSS px per unit
     const pair = (gapA, gapB) => ({
       a: { rings: square(50 - gapA - 10), tappable: true },
       b: { rings: square(50 + gapB), tappable: true },
@@ -206,7 +251,7 @@ describe('hitTest', () => {
     assert.throws(() => hitTest(point, { za: { rings: [[[0, 0], [0.5, 1], [1, 0]]], tappable: true } }, FRAME, PHONE_PX), /`entries.za.rings\[0\]\[1\]`/);
     assert.throws(() => hitTest(point, entries, [0, 0, 0, 10], PHONE_PX), RangeError);
     assert.throws(() => hitTest(point, entries, [0, 0, 10], PHONE_PX), /`frame`/);
-    for (const viewportPx of [0, -1, NaN, Infinity, '375']) {
+    for (const viewportPx of [375, { width: 0, height: 1 }, { width: 375 }, { width: NaN, height: 1 }, { width: 1, height: Infinity }]) {
       assert.throws(() => hitTest(point, entries, FRAME, viewportPx), /`viewportPx`/);
     }
   });
@@ -219,7 +264,7 @@ describe('computeInset', () => {
     outer[0] <= inner[0] && outer[1] <= inner[1] && outer[2] >= inner[2] && outer[3] >= inner[3];
 
   it('magnifies a padded square around the entry and places it inside the frame', () => {
-    const { marker, source, target } = computeInset(comoros, frame);
+    const { marker, source, target } = computeInset(comoros, frame, PHONE_PX);
     assert.ok(contains(source, comoros.bbox));
     assert.equal(source[2] - source[0], source[3] - source[1]);
     assert.ok(contains(frame, target));
@@ -233,7 +278,7 @@ describe('computeInset', () => {
     const [fx0, fy0, fx1, fy1] = [0, 0, 1_000, 1_000];
     const at = (x, y) => ({ bbox: [x, y, x + 2, y + 2] });
     const corner = (entry) => {
-      const { target } = computeInset(entry, [fx0, fy0, fx1, fy1]);
+      const { target } = computeInset(entry, [fx0, fy0, fx1, fy1], PHONE_PX);
       return [target[0] > 500 ? 'right' : 'left', target[1] > 500 ? 'bottom' : 'top'];
     };
     assert.deepEqual(corner(at(10, 10)), ['right', 'bottom']);
@@ -242,16 +287,26 @@ describe('computeInset', () => {
     assert.deepEqual(corner(at(900, 900)), ['left', 'top']);
   });
 
+  it('sizes the minimum marker in CSS px, also for a height-limited frame', () => {
+    const point = { bbox: [500, 500, 500, 500] };
+    const tall = [0, 0, 1_000, 4_000];
+    for (const viewportPx of [{ width: 375, height: 8_000 }, { width: 375, height: 500 }]) {
+      const { marker } = computeInset(point, tall, viewportPx);
+      assert.ok(Math.abs(marker.r * getPxPerUnit(tall, viewportPx) - MARKER_MIN_RADIUS_PX) < 1e-9);
+    }
+  });
+
   it('keeps a visible marker and a non-empty source for a point-sized entry', () => {
-    const { marker, source } = computeInset({ bbox: [500, 500, 500, 500] }, [0, 0, 1_000, 1_000]);
+    const { marker, source } = computeInset({ bbox: [500, 500, 500, 500] }, [0, 0, 1_000, 1_000], PHONE_PX);
     assert.ok(marker.r > 0);
     assert.ok(source[2] > source[0] && source[3] > source[1]);
   });
 
   it('validates its inputs', () => {
-    assert.throws(() => computeInset(null, frame), /`entry`/);
-    assert.throws(() => computeInset({ bbox: [0, 0, 1] }, frame), /`entry.bbox`/);
-    assert.throws(() => computeInset({ bbox: [2, 0, 1, 1] }, frame), RangeError);
-    assert.throws(() => computeInset(comoros, [0, 0, 0, 0]), /`frame`/);
+    assert.throws(() => computeInset(null, frame, PHONE_PX), /`entry`/);
+    assert.throws(() => computeInset({ bbox: [0, 0, 1] }, frame, PHONE_PX), /`entry.bbox`/);
+    assert.throws(() => computeInset({ bbox: [2, 0, 1, 1] }, frame, PHONE_PX), RangeError);
+    assert.throws(() => computeInset(comoros, [0, 0, 0, 0], PHONE_PX), /`frame`/);
+    assert.throws(() => computeInset(comoros, frame, 375), /`viewportPx`/);
   });
 });

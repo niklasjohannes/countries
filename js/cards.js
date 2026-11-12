@@ -33,6 +33,7 @@ function isPlainObject(value) {
  * Picks the direction of a card. Entries that are not tappable (`small`
  * entries) are always map → name and do not consume `rng`; a tappable entry
  * draws once from `rng` and is name → tap with probability `TAP_CARD_SHARE`.
+ * `small`, when given, must equal `!tappable` (the map-meta contract).
  *
  * @param {{ tappable: boolean, small?: boolean }} entry The entry's `data/map-meta.json` record.
  * @param {() => number} rng Random source returning numbers in `[0, 1)`.
@@ -48,11 +49,14 @@ export function pickDirection(entry, rng) {
   if (entry.small !== undefined && typeof entry.small !== 'boolean') {
     throw new TypeError('`entry.small` must be a boolean when given.');
   }
+  if (entry.small === entry.tappable) {
+    throw new RangeError('`entry.small` must be the opposite of `entry.tappable`.');
+  }
   if (typeof rng !== 'function') {
     throw new TypeError('`rng` must be a function returning a number in `[0, 1)`.');
   }
 
-  if (!entry.tappable || entry.small === true) {
+  if (!entry.tappable) {
     return DIRECTION_MAP_TO_NAME;
   }
   const draw = rng();
@@ -63,15 +67,22 @@ export function pickDirection(entry, rng) {
 }
 
 /**
- * Picks the frame a card is shown on: its sub-region while young, its
- * continent once `state.intervalDays >= MATURE_INTERVAL_DAYS`. A card that has
- * never been answered (`state` is `null`) is young.
+ * Picks the frame a card is shown on.
+ *
+ * - name → tap cards always use the fixed sub-region frame: `tappable` /
+ *   `small` are measured at sub-region zoom, so zooming out could make the
+ *   target too small to tap.
+ * - map → name cards use the sub-region while young, and the continent once
+ *   `state.intervalDays >= MATURE_INTERVAL_DAYS`.
+ *
+ * A card that has never been answered (`state` is `null`) is young.
  *
  * @param {{ intervalDays: number } | null} state The card's SRS state, or `null` if unseen.
  * @param {{ continent: string, subregion: string }} entry The country's `data/countries.json` record.
+ * @param {'map-to-name' | 'name-to-tap'} direction The card direction, from `pickDirection`.
  * @returns {string} A key into `data/map-meta.json` → `frames` (a sub-region or continent).
  */
-export function pickFrame(state, entry) {
+export function pickFrame(state, entry, direction) {
   if (state !== null) {
     if (!isPlainObject(state)) {
       throw new TypeError('`state` must be a card state object or `null`.');
@@ -89,7 +100,13 @@ export function pickFrame(state, entry) {
   if (SUBREGIONS[entry.subregion] !== entry.continent) {
     throw new RangeError('`entry.continent` must be the continent of `entry.subregion`.');
   }
+  if (direction !== DIRECTION_MAP_TO_NAME && direction !== DIRECTION_NAME_TO_TAP) {
+    throw new RangeError(`\`direction\` must be '${DIRECTION_MAP_TO_NAME}' or '${DIRECTION_NAME_TO_TAP}'.`);
+  }
 
+  if (direction === DIRECTION_NAME_TO_TAP) {
+    return entry.subregion;
+  }
   const isMature = state !== null && state.intervalDays >= MATURE_INTERVAL_DAYS;
   return isMature ? entry.continent : entry.subregion;
 }

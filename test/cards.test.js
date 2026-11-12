@@ -66,7 +66,7 @@ describe('pickDirection', () => {
     for (let i = 0; i < 100; i += 1) {
       assert.equal(pickDirection(small, rng), DIRECTION_MAP_TO_NAME);
     }
-    assert.equal(pickDirection({ small: true, tappable: true }, rng), DIRECTION_MAP_TO_NAME);
+    assert.equal(pickDirection({ tappable: false }, rng), DIRECTION_MAP_TO_NAME);
     assert.equal(nCalls, 0);
   });
 
@@ -85,6 +85,8 @@ describe('pickDirection', () => {
     assert.throws(() => pickDirection(null, () => 0), /`entry`/);
     assert.throws(() => pickDirection({ small: false }, () => 0), /`entry.tappable`/);
     assert.throws(() => pickDirection({ small: 'no', tappable: true }, () => 0), /`entry.small`/);
+    assert.throws(() => pickDirection({ small: true, tappable: true }, () => 0), /`entry.small`/);
+    assert.throws(() => pickDirection({ small: false, tappable: false }, () => 0), /`entry.small`/);
     assert.throws(() => pickDirection(tappable, 0.5), /`rng`/);
     for (const draw of [1, -0.1, NaN, '0.5']) {
       assert.throws(() => pickDirection(tappable, () => draw), RangeError, String(draw));
@@ -93,30 +95,45 @@ describe('pickDirection', () => {
 });
 
 describe('pickFrame', () => {
-  it('switches from sub-region to continent at exactly `MATURE_INTERVAL_DAYS`', () => {
+  const MAP = DIRECTION_MAP_TO_NAME;
+  const TAP = DIRECTION_NAME_TO_TAP;
+
+  it('switches a map → name card from sub-region to continent at exactly `MATURE_INTERVAL_DAYS`', () => {
     assert.equal(MATURE_INTERVAL_DAYS, 21);
-    assert.equal(pickFrame(withInterval(20), SOUTH_AFRICA), 'southern-africa');
-    assert.equal(pickFrame(withInterval(21), SOUTH_AFRICA), 'africa');
-    assert.equal(pickFrame(withInterval(365), SOUTH_AFRICA), 'africa');
+    assert.equal(pickFrame(withInterval(20), SOUTH_AFRICA, MAP), 'southern-africa');
+    assert.equal(pickFrame(withInterval(21), SOUTH_AFRICA, MAP), 'africa');
+    assert.equal(pickFrame(withInterval(365), SOUTH_AFRICA, MAP), 'africa');
+  });
+
+  it('keeps a name → tap card on the sub-region however mature', () => {
+    for (const intervalDays of [0, 20, 21, 365]) {
+      assert.equal(pickFrame(withInterval(intervalDays), SOUTH_AFRICA, TAP), 'southern-africa', String(intervalDays));
+    }
+    assert.equal(pickFrame(null, SOUTH_AFRICA, TAP), 'southern-africa');
   });
 
   it('frames new and unseen cards on the sub-region', () => {
-    assert.equal(pickFrame(createCardState('za'), SOUTH_AFRICA), 'southern-africa');
-    assert.equal(pickFrame(null, SOUTH_AFRICA), 'southern-africa');
+    assert.equal(pickFrame(createCardState('za'), SOUTH_AFRICA, MAP), 'southern-africa');
+    assert.equal(pickFrame(null, SOUTH_AFRICA, MAP), 'southern-africa');
   });
 
   it('returns a key into map-meta `frames`', () => {
-    for (const intervalDays of [0, 20, 21]) {
-      assert.ok(Object.hasOwn(meta.frames, pickFrame(withInterval(intervalDays), SOUTH_AFRICA)));
+    for (const direction of [MAP, TAP]) {
+      for (const intervalDays of [0, 20, 21]) {
+        assert.ok(Object.hasOwn(meta.frames, pickFrame(withInterval(intervalDays), SOUTH_AFRICA, direction)));
+      }
     }
   });
 
   it('validates its inputs', () => {
-    assert.throws(() => pickFrame(undefined, SOUTH_AFRICA), /`state`/);
-    assert.throws(() => pickFrame(withInterval(-1), SOUTH_AFRICA), /`state.intervalDays`/);
-    assert.throws(() => pickFrame(withInterval(2.5), SOUTH_AFRICA), /`state.intervalDays`/);
-    assert.throws(() => pickFrame(null, null), /`entry`/);
-    assert.throws(() => pickFrame(null, { continent: 'africa', subregion: 'atlantis' }), /`entry.subregion`/);
-    assert.throws(() => pickFrame(null, { continent: 'europe', subregion: 'southern-africa' }), /`entry.continent`/);
+    assert.throws(() => pickFrame(undefined, SOUTH_AFRICA, MAP), /`state`/);
+    assert.throws(() => pickFrame(withInterval(-1), SOUTH_AFRICA, MAP), /`state.intervalDays`/);
+    assert.throws(() => pickFrame(withInterval(2.5), SOUTH_AFRICA, MAP), /`state.intervalDays`/);
+    assert.throws(() => pickFrame(null, null, MAP), /`entry`/);
+    assert.throws(() => pickFrame(null, { continent: 'africa', subregion: 'atlantis' }, MAP), /`entry.subregion`/);
+    assert.throws(() => pickFrame(null, { continent: 'europe', subregion: 'southern-africa' }, MAP), /`entry.continent`/);
+    for (const direction of [undefined, 'tap', true]) {
+      assert.throws(() => pickFrame(null, SOUTH_AFRICA, direction), /`direction`/);
+    }
   });
 });
