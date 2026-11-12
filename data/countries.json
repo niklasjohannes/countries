@@ -40,7 +40,7 @@
       "polynesia": "oceania"
     },
     "policy": {
-      "scope": "Quizzed (206): the 193 UN member states, the extras Vatican City (va), Palestine (ps), Kosovo (xk) and Taiwan (tw), and nine large territories: Greenland, Western Sahara, French Guiana, Puerto Rico, New Caledonia, Falkland Islands, French Polynesia, Svalbard and Hong Kong. Every other ISO 3166-1 territory is context-only land (`quizzed: false`): drawn, never asked. The context-only list is PROVISIONAL until issue 5 reconciles it against Natural Earth.",
+      "scope": "Quizzed (206): the 193 UN member states, the extras Vatican City (va), Palestine (ps), Kosovo (xk) and Taiwan (tw), and nine large territories: Greenland, Western Sahara, French Guiana, Puerto Rico, New Caledonia, Falkland Islands, French Polynesia, Svalbard and Hong Kong. Every other ISO 3166-1 territory is context-only land (`quizzed: false`): drawn, never asked. The context-only list is reconciled against Natural Earth 1:50m: territories it does not draw at all (bv, gi, um) are left out and listed in `meta.excluded`.",
       "continentBasis": "Continent and sub-region come from the UN M49 geoscheme (see `meta.source`). M49 Africa, Asia, Europe and Oceania map 1:1; M49 Americas splits into north-america (Northern America, Central America, Caribbean) and south-america. Sub-regions are the 22 M49 intermediate regions (or the M49 sub-region where it has no intermediate regions). Taiwan and Kosovo are not in M49 and are placed by geography (Eastern Asia, Southern Europe).",
       "transcontinental": {
         "ru": "europe (M49 Eastern Europe)",
@@ -99,7 +99,10 @@
       }
     },
     "excluded": {
-      "aq": "Antarctica: not a country, no permanent population, and no M49 region, so it has no continent in the closed list (provisional; reconcile against Natural Earth in issue 5)"
+      "aq": "Antarctica: not a country, no permanent population, and no M49 region, so it has no continent in the closed list. Natural Earth draws it; the geometry pipeline skips it.",
+      "bv": "Bouvet Island: not drawn by Natural Earth at 1:50m (no feature, no polygon part).",
+      "gi": "Gibraltar: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only).",
+      "um": "United States Minor Outlying Islands: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only)."
     }
   },
   "countries": [
@@ -135,7 +138,6 @@
     {"code":"br","name":"Brazil","aliases":[],"continent":"south-america","subregion":"south-america","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"bs","name":"Bahamas","aliases":["The Bahamas"],"continent":"north-america","subregion":"caribbean","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"bt","name":"Bhutan","aliases":[],"continent":"asia","subregion":"southern-asia","sovereign":true,"parentCode":null,"quizzed":true},
-    {"code":"bv","name":"Bouvet Island","aliases":[],"continent":"south-america","subregion":"south-america","sovereign":false,"parentCode":"no","quizzed":false},
     {"code":"bw","name":"Botswana","aliases":[],"continent":"africa","subregion":"southern-africa","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"by","name":"Belarus","aliases":[],"continent":"europe","subregion":"eastern-europe","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"bz","name":"Belize","aliases":[],"continent":"north-america","subregion":"central-america","sovereign":true,"parentCode":null,"quizzed":true},
@@ -184,7 +186,6 @@
     {"code":"gf","name":"French Guiana","aliases":[],"continent":"south-america","subregion":"south-america","sovereign":false,"parentCode":"fr","quizzed":true},
     {"code":"gg","name":"Guernsey","aliases":[],"continent":"europe","subregion":"northern-europe","sovereign":false,"parentCode":"gb","quizzed":false},
     {"code":"gh","name":"Ghana","aliases":[],"continent":"africa","subregion":"western-africa","sovereign":true,"parentCode":null,"quizzed":true},
-    {"code":"gi","name":"Gibraltar","aliases":[],"continent":"europe","subregion":"southern-europe","sovereign":false,"parentCode":"gb","quizzed":false},
     {"code":"gl","name":"Greenland","aliases":[],"continent":"north-america","subregion":"northern-america","sovereign":false,"parentCode":"dk","quizzed":true},
     {"code":"gm","name":"Gambia","aliases":["The Gambia"],"continent":"africa","subregion":"western-africa","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"gn","name":"Guinea","aliases":[],"continent":"africa","subregion":"western-africa","sovereign":true,"parentCode":null,"quizzed":true},
@@ -333,7 +334,6 @@
     {"code":"tz","name":"Tanzania","aliases":[],"continent":"africa","subregion":"eastern-africa","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"ua","name":"Ukraine","aliases":[],"continent":"europe","subregion":"eastern-europe","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"ug","name":"Uganda","aliases":[],"continent":"africa","subregion":"eastern-africa","sovereign":true,"parentCode":null,"quizzed":true},
-    {"code":"um","name":"United States Minor Outlying Islands","aliases":["US Minor Outlying Islands"],"continent":"oceania","subregion":"micronesia","sovereign":false,"parentCode":"us","quizzed":false},
     {"code":"us","name":"United States","aliases":["USA","US","United States of America","America"],"continent":"north-america","subregion":"northern-america","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"uy","name":"Uruguay","aliases":[],"continent":"south-america","subregion":"south-america","sovereign":true,"parentCode":null,"quizzed":true},
     {"code":"uz","name":"Uzbekistan","aliases":[],"continent":"asia","subregion":"central-asia","sovereign":true,"parentCode":null,"quizzed":true},

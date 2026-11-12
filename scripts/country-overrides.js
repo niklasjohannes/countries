@@ -142,11 +142,11 @@ export const HAND_PLACED = {
 
 /**
  * Entries that are deliberately left out. Antarctica has no M49 region and is
- * not a country, so it has no continent in the closed list. PROVISIONAL: issue 5
- * reconciles this against what Natural Earth draws.
+ * not a country, so it has no continent in the closed list. Territories that
+ * Natural Earth does not draw are in NOT_DRAWN below.
  */
 export const EXCLUDED = {
-  aq: 'Antarctica: not a country, no permanent population, and no M49 region, so it has no continent in the closed list (provisional; reconcile against Natural Earth in issue 5)'
+  aq: 'Antarctica: not a country, no permanent population, and no M49 region, so it has no continent in the closed list. Natural Earth draws it; the geometry pipeline skips it.'
 };
 
 /** Quizzed beyond the 193 UN member states: two UN observers plus Kosovo and Taiwan. */
@@ -156,7 +156,7 @@ export const QUIZZED_EXTRAS = ['va', 'ps', 'xk', 'tw'];
 export const QUIZZED_TERRITORIES = ['gl', 'eh', 'gf', 'pr', 'nc', 'fk', 'pf', 'sj', 'hk'];
 
 export const POLICY = {
-  scope: 'Quizzed (206): the 193 UN member states, the extras Vatican City (va), Palestine (ps), Kosovo (xk) and Taiwan (tw), and nine large territories: Greenland, Western Sahara, French Guiana, Puerto Rico, New Caledonia, Falkland Islands, French Polynesia, Svalbard and Hong Kong. Every other ISO 3166-1 territory is context-only land (`quizzed: false`): drawn, never asked. The context-only list is PROVISIONAL until issue 5 reconciles it against Natural Earth.',
+  scope: 'Quizzed (206): the 193 UN member states, the extras Vatican City (va), Palestine (ps), Kosovo (xk) and Taiwan (tw), and nine large territories: Greenland, Western Sahara, French Guiana, Puerto Rico, New Caledonia, Falkland Islands, French Polynesia, Svalbard and Hong Kong. Every other ISO 3166-1 territory is context-only land (`quizzed: false`): drawn, never asked. The context-only list is reconciled against Natural Earth 1:50m: territories it does not draw at all (bv, gi, um) are left out and listed in `meta.excluded`.',
   continentBasis: 'Continent and sub-region come from the UN M49 geoscheme (see `meta.source`). M49 Africa, Asia, Europe and Oceania map 1:1; M49 Americas splits into north-america (Northern America, Central America, Caribbean) and south-america. Sub-regions are the 22 M49 intermediate regions (or the M49 sub-region where it has no intermediate regions). Taiwan and Kosovo are not in M49 and are placed by geography (Eastern Asia, Southern Europe).',
   transcontinental: {
     ru: 'europe (M49 Eastern Europe)',
@@ -492,3 +492,141 @@ export const ENTRIES = {
   zw: state('Zimbabwe')
 
 };
+
+// ---- Geometry (issue 5) ----
+//
+// Everything `scripts/build-geometry.js` needs beyond the vendored Natural
+// Earth files. Explained for humans in docs/DATA.md -> "Geometry".
+
+/** Pinned Natural Earth inputs. The generator refuses to run if a hash differs. */
+export const NATURAL_EARTH = {
+  repository: 'https://github.com/nvkelso/natural-earth-vector',
+  tag: 'v5.1.2',
+  commit: 'f1890d9f152c896d250a77557a5751a93d494776',
+  released: '2022-05-13',
+  files: {
+    countries: {
+      path: 'vendor/natural-earth/ne_50m_admin_0_countries.geojson',
+      upstream: 'geojson/ne_50m_admin_0_countries.geojson',
+      sha256: '3e458fc036ad0a66411f2c1e6cac49c5d7bfb81cb1123bc513b22511a2b7fdeb'
+    },
+    breakaway: {
+      path: 'vendor/natural-earth/ne_50m_admin_0_breakaway_disputed_areas.geojson',
+      upstream: 'geojson/ne_50m_admin_0_breakaway_disputed_areas.geojson',
+      sha256: 'e91f0f9518b24355ceec6668f4df874d6f39db7d0bc9ec22d9b14429bfb6be01'
+    },
+    terms: {
+      path: 'vendor/natural-earth/LICENSE.md',
+      upstream: 'LICENSE.md',
+      sha256: '2631b5b39b6d1acc56de75235109b5af2dbb4b0ac5a127b6f06185977247fd4b'
+    }
+  }
+};
+
+/**
+ * ISO 3166-1 territories that Natural Earth 1:50m does not draw at all, neither
+ * as a feature nor as a part of another feature. They have no land to show, so
+ * they are dropped from `countries.json` and listed in `meta.excluded`. Their
+ * rows stay in ENTRIES and M49_SUBREGIONS so the transcription stays complete.
+ */
+export const NOT_DRAWN = {
+  bv: 'Bouvet Island: not drawn by Natural Earth at 1:50m (no feature, no polygon part).',
+  gi: 'Gibraltar: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only).',
+  um: 'United States Minor Outlying Islands: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only).'
+};
+
+/**
+ * Natural Earth 1:50m features whose `ISO_A2_EH` is `-99`, keyed by `ADM0_A3`,
+ * mapped to the entry that owns their land under the border policy table.
+ */
+export const NE_FEATURE_CODES = {
+  CYN: { code: 'cy', policy: 'northern-cyprus' },
+  SOL: { code: 'so', policy: 'somaliland' },
+  KAS: { code: 'in', policy: 'siachen-glacier', provisional: true }
+};
+
+/** Natural Earth features that are deliberately not drawn, keyed by `ADM0_A3`. */
+export const NE_SKIPPED_FEATURES = {
+  ATA: 'Antarctica: excluded (meta.excluded.aq).'
+};
+
+/**
+ * Polygon parts of a Natural Earth feature that belong to a separate entry.
+ * A part moves when its whole bounding box lies inside `box`
+ * ([west, south, east, north] in degrees). Every rule must match at least one
+ * part, so an upstream change cannot silently drop an entry.
+ */
+export const OVERSEAS_SPLITS = [
+  { from: 'fr', code: 'gf', box: [-55, 2, -51, 6], note: 'French Guiana' },
+  { from: 'fr', code: 'gp', box: [-62, 15.8, -61, 16.6], note: 'Guadeloupe (Basse-Terre, Grande-Terre, Marie-Galante)' },
+  { from: 'fr', code: 'mq', box: [-61.4, 14.3, -60.7, 15], note: 'Martinique' },
+  { from: 'fr', code: 're', box: [55, -21.6, 56, -20.7], note: 'Réunion' },
+  { from: 'fr', code: 'yt', box: [44.9, -13.1, 45.4, -12.5], note: 'Mayotte' },
+  { from: 'no', code: 'sj', box: [10, 74, 35, 81], note: 'Svalbard, including Bjørnøya' },
+  { from: 'no', code: 'sj', box: [-10, 70.5, -7, 71.5], note: 'Jan Mayen (ISO 3166-1 SJ covers both)' },
+  { from: 'nl', code: 'bq', box: [-68.5, 11.9, -68.1, 12.4], note: 'Bonaire' },
+  { from: 'nl', code: 'bq', box: [-63.3, 17.4, -62.9, 17.7], note: 'Saba and Sint Eustatius' },
+  { from: 'au', code: 'cx', box: [105.4, -10.7, 105.8, -10.3], note: 'Christmas Island (Natural Earth "Indian Ocean Territories")' },
+  { from: 'au', code: 'cc', box: [96.7, -12.3, 97, -12], note: 'Cocos (Keeling) Islands (Natural Earth "Indian Ocean Territories")' },
+  { from: 'nz', code: 'tk', box: [-173, -10, -171, -8], note: 'Tokelau' }
+];
+
+/**
+ * Every area of Natural Earth's 1:50m breakaway/disputed layer, keyed by
+ * `BRK_NAME`, with the entry that owns it. If the area is drawn inside another
+ * entry, the generator moves it (a whole polygon part, or a cut along the
+ * area's boundary). An area with no row here stops the build: a new case must
+ * be ruled on, not guessed. `provisional: true` marks rows that follow Natural
+ * Earth's default (the administering state) and still await an owner ruling.
+ */
+export const BREAKAWAY_RULINGS = {
+  'Arunachal Pradesh': { code: 'in', policy: 'arunachal-pradesh' },
+  'Tirpani Valleys': { code: 'in', provisional: true },
+  'Bara Hotii Valleys': { code: 'in', provisional: true },
+  Demchok: { code: 'in', provisional: true },
+  'Samdu Valleys': { code: 'in', provisional: true },
+  'Jammu and Kashmir': { code: 'in', policy: 'kashmir' },
+  'Shaksam Valley': { code: 'cn', policy: 'aksai-chin' },
+  'Aksai Chin': { code: 'cn', policy: 'aksai-chin' },
+  'Gilgit-Baltistan': { code: 'pk', policy: 'kashmir' },
+  'Siachen Glacier': { code: 'in', policy: 'siachen-glacier', provisional: true },
+  'Junagadh and Manavadar': { code: 'in', provisional: true },
+  Abyei: { code: 'sd', provisional: true },
+  'Ilemi Triangle': { code: 'ke', provisional: true },
+  'Lawa Headwaters': { code: 'gf', provisional: true },
+  'Courantyne Headwaters': { code: 'gy', provisional: true },
+  'Golan Heights': { code: 'sy', policy: 'golan-heights' },
+  'W. Sahara': { code: 'eh', policy: 'western-sahara' },
+  'N. Cyprus': { code: 'cy', policy: 'northern-cyprus' },
+  'Kuril Is.': { code: 'ru', provisional: true },
+  Somaliland: { code: 'so', policy: 'somaliland' },
+  Abkhazia: { code: 'ge', policy: 'abkhazia' },
+  'South Ossetia': { code: 'ge', policy: 'south-ossetia' },
+  Transnistria: { code: 'md', policy: 'transnistria' },
+  Artsakh: { code: 'az', policy: 'nagorno-karabakh' },
+  Crimea: { code: 'ua', policy: 'crimea' },
+  "Donetsk People's Republic": { code: 'ua', policy: 'occupied-ukraine' },
+  "Luhansk People's Republic": { code: 'ua', policy: 'occupied-ukraine' },
+  'North Borneo': { code: 'my', provisional: true }
+};
+
+/**
+ * One projection per geometry file. Continents use a spherical Lambert
+ * azimuthal equal-area projection on `centre` ([lon, lat] in degrees); the
+ * world file uses Equal Earth. `unitsPerKm` sets the integer grid;
+ * `toleranceKm2` is the Visvalingam effective-area threshold; rings (islands)
+ * smaller than `minRingKm2` are dropped unless they are an entry's largest ring
+ * or at least 1% of it.
+ */
+export const GEOMETRY_FILES = {
+  africa: { projection: 'laea', centre: [20, 2], unitsPerKm: 10, toleranceKm2: 40, minRingKm2: 20 },
+  asia: { projection: 'laea', centre: [85, 30], unitsPerKm: 10, toleranceKm2: 60, minRingKm2: 40 },
+  europe: { projection: 'laea', centre: [15, 54], unitsPerKm: 10, toleranceKm2: 40, minRingKm2: 20 },
+  'north-america': { projection: 'laea', centre: [-95, 40], unitsPerKm: 10, toleranceKm2: 60, minRingKm2: 40 },
+  'south-america': { projection: 'laea', centre: [-60, -20], unitsPerKm: 10, toleranceKm2: 40, minRingKm2: 20 },
+  oceania: { projection: 'laea', centre: [170, -15], unitsPerKm: 10, toleranceKm2: 20, minRingKm2: 5 },
+  world: { projection: 'equal-earth', centre: [0, 0], unitsPerKm: 1, toleranceKm2: 1500, minRingKm2: 800 }
+};
+
+/** Islands get up to this many maritime neighbours, no farther than the cap. */
+export const MARITIME_NEIGHBOURS = { count: 3, capKm: 1500 };
