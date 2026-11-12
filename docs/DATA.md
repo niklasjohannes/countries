@@ -68,7 +68,7 @@ The 43 context-only entries are **all remaining ISO 3166-1 territories that have
 
 ## Border policy table (PLAN decision 15)
 
-**Rule: internationally recognised borders.** The rows are the cases decision 15 names, one per row. "Entry" says which `countries.json` entry owns the land; the map geometry itself is built in issue 5.
+**Rule: internationally recognised borders.** The first nine rows are the cases decision 15 names; the next eight were ruled on by the owner for PR 18. One case per row. "Entry" says which `countries.json` entry owns the land. **Issue 5 applies these rows when it builds the geometry.**
 
 | Case | Treatment | Entry | Notes |
 |---|---|---|---|
@@ -78,9 +78,17 @@ The 43 context-only entries are **all remaining ISO 3166-1 territories that have
 | Abkhazia | Part of Georgia | `ge` | No separate entry. |
 | South Ossetia | Part of Georgia | `ge` | No separate entry. |
 | Transnistria | Part of Moldova | `md` | No separate entry. |
-| Kashmir | Split along the line of control | `in` and `pk` | Indian-administered side drawn as part of India, Pakistani-administered side (including Gilgit-Baltistan) as part of Pakistan. Geometry is issue 5. Aksai Chin is not on the line of control: open question below. |
+| Kashmir | Split along the line of control | `in` and `pk` | Indian-administered side drawn as part of India, Pakistani-administered side (including Gilgit-Baltistan) as part of Pakistan. Geometry is issue 5. Aksai Chin is a separate row below. |
 | Western Sahara | Its own entry | `eh` | Quizzed. `sovereign: false`, `parentCode: null`: administration is divided between Morocco and the Sahrawi Republic, and no single UN member administers it. |
 | Kosovo | Its own entry | `xk` | Quizzed (PLAN decision 2). `sovereign: false`, `parentCode: null`, `southern-europe`. Not in M49 or ISO 3166-1. |
+| Aksai Chin and the Trans-Karakoram Tract | Part of China | `cn` | De facto line, the same principle as the Kashmir split. Claimed by India and Pakistan respectively. |
+| Arunachal Pradesh | Part of India | `in` | India administers it; China claims it. |
+| Occupied Ukraine beyond Crimea (Donetsk, Luhansk, Zaporizhzhia, Kherson) | Part of Ukraine | `ua` | Same treatment as Crimea. |
+| Golan Heights | Part of Syria | `sy` | The UN position. Israel administers it. |
+| Hala'ib Triangle | Part of Egypt | `eg` | North of the straight 22°N line used on most maps. |
+| Bir Tawil | Part of Sudan | `sd` | South of the 22°N line. |
+| Akrotiri and Dhekelia | Merged into Cyprus | `cy` | UK sovereign base areas, too small to draw separately. No ISO code, no separate entry. |
+| Nagorno-Karabakh | Part of Azerbaijan | `az` | Internationally recognised as Azerbaijan. |
 
 ### Other cases met while building the metadata
 
@@ -95,22 +103,13 @@ These are carried over from the flags app's policy, because the entries already 
 | Gibraltar (`gi`) | `parentCode: gb`, claimed by Spain. Context-only. | carried from flags |
 | Hong Kong (`hk`), Macau (`mo`) | `parentCode: cn`. | carried from flags |
 | Cook Islands (`ck`), Niue (`nu`) | Free association: `parentCode: nz`. | carried from flags |
-| British Indian Ocean Territory (`io`) | `parentCode: gb`, claimed by Mauritius. Context-only, uninhabited. | new, provisional |
+| British Indian Ocean Territory (`io`) | `parentCode: gb`, claimed by Mauritius. Context-only. See "Chagos" below. | new, owner-ruled |
 | Svalbard (`sj`) | ISO "Svalbard and Jan Mayen"; named "Svalbard", `parentCode: no`. | new |
 | Antarctica (`aq`) | Excluded: no M49 region, so no continent. | new, provisional |
 
-### Open questions (not decided here)
+### Chagos Archipelago (`io`)
 
-These are geometry or sovereignty cases the table above does not cover. **None of them is decided.** They affect issue 5 (geometry), not the metadata in this file, and need an owner decision before issue 5 draws them.
-
-- **Aksai Chin and the Trans-Karakoram Tract** (China-administered, claimed by India and Pakistan): not on the line of control, so the Kashmir row does not say which entry they belong to.
-- **Arunachal Pradesh** (India-administered, claimed by China).
-- **Occupied parts of Ukraine beyond Crimea** (Donetsk, Luhansk, parts of Zaporizhzhia and Kherson).
-- **Golan Heights** (Israeli-administered, internationally recognised as Syrian).
-- **Hala'ib Triangle and Bir Tawil** (Egypt/Sudan).
-- **Akrotiri and Dhekelia** (UK sovereign base areas on Cyprus; no ISO code).
-- **Nagorno-Karabakh** (internationally recognised as Azerbaijan; same pattern as the rows above, but not named in decision 15).
-- **Chagos Archipelago**: the sovereignty position has been in flux (UK–Mauritius). `io` currently has `parentCode: gb`.
+The British Indian Ocean Territory stays context-only with `parentCode: gb`, the administering state. A 2025 UK–Mauritius treaty on the archipelago exists, but whether it is in force is unconfirmed, so nothing changes yet. Revisit if it takes effect.
 
 ## Rebuilding
 

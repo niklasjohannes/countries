@@ -202,7 +202,9 @@ describe('border policy', () => {
   it('has a meta.policy.borders row for every case in the table', () => {
     for (const key of [
       'crimea', 'northern-cyprus', 'somaliland', 'abkhazia', 'south-ossetia',
-      'transnistria', 'kashmir', 'western-sahara', 'kosovo'
+      'transnistria', 'kashmir', 'western-sahara', 'kosovo', 'aksai-chin', 'arunachal-pradesh',
+      'occupied-ukraine', 'golan-heights', 'halaib-triangle', 'bir-tawil', 'akrotiri-dhekelia',
+      'nagorno-karabakh'
     ]) {
       assert.ok(data.meta.policy.borders[key], key);
     }
@@ -212,9 +214,11 @@ describe('border policy', () => {
     const doc = readFileSync(new URL('../docs/DATA.md', import.meta.url), 'utf8');
     for (const row of [
       'Crimea', 'Northern Cyprus', 'Somaliland', 'Abkhazia', 'South Ossetia',
-      'Transnistria', 'Kashmir', 'Western Sahara', 'Kosovo'
+      'Transnistria', 'Kashmir', 'Western Sahara', 'Kosovo', 'Aksai Chin and the Trans-Karakoram Tract',
+      'Arunachal Pradesh', 'Occupied Ukraine beyond Crimea', 'Golan Heights', 'Hala\'ib Triangle',
+      'Bir Tawil', 'Akrotiri and Dhekelia', 'Nagorno-Karabakh'
     ]) {
-      assert.match(doc, new RegExp(`^\\| ${row} \\|`, 'm'), `${row} needs its own table row`);
+      assert.match(doc, new RegExp(`^\\| ${row}( \\(.*\\))? \\|`, 'm'), `${row} needs its own table row`);
     }
   });
 });

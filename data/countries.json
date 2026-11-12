@@ -69,8 +69,16 @@
         "abkhazia": "Part of Georgia (ge). No separate entry.",
         "south-ossetia": "Part of Georgia (ge). No separate entry.",
         "transnistria": "Part of Moldova (md). No separate entry.",
-        "kashmir": "Split along the line of control: the Indian-administered side is drawn as part of India (in), the Pakistani-administered side as part of Pakistan (pk). The geometry is issue 5's job. Aksai Chin is an open question.",
+        "kashmir": "Split along the line of control: the Indian-administered side is drawn as part of India (in), the Pakistani-administered side as part of Pakistan (pk). The geometry is issue 5's job. Aksai Chin is a separate case.",
         "western-sahara": "Its own entry (eh): non-sovereign, parentCode null, quizzed.",
+        "aksai-chin": "Part of China (cn): the de facto line, the same principle as the Kashmir split.",
+        "arunachal-pradesh": "Part of India (in).",
+        "occupied-ukraine": "Donetsk, Luhansk, Zaporizhzhia and Kherson are part of Ukraine (ua), as with Crimea.",
+        "golan-heights": "Part of Syria (sy), the UN position.",
+        "halaib-triangle": "Part of Egypt (eg), north of the straight 22N line.",
+        "bir-tawil": "Part of Sudan (sd), south of the 22N line.",
+        "akrotiri-dhekelia": "Merged into Cyprus (cy): UK sovereign base areas too small to draw separately.",
+        "nagorno-karabakh": "Part of Azerbaijan (az).",
         "kosovo": "Its own entry (xk): quizzed, non-sovereign, parentCode null, southern-europe."
       },
       "contested": {
@@ -85,7 +93,7 @@
         "mo": "Macau: special administrative region of China -> sovereign false, parentCode cn.",
         "ck": "Cook Islands: free association with New Zealand, not a UN member -> parentCode nz.",
         "nu": "Niue: free association with New Zealand, not a UN member -> parentCode nz.",
-        "io": "British Indian Ocean Territory: administered by the United Kingdom, claimed by Mauritius -> parentCode gb. Context-only.",
+        "io": "British Indian Ocean Territory: administered by the United Kingdom, claimed by Mauritius -> parentCode gb. Context-only. A 2025 UK-Mauritius treaty exists; its in-force status is unconfirmed, so nothing changes.",
         "sj": "Svalbard (ISO \"Svalbard and Jan Mayen\"): parentCode no.",
         "cy": "Cyprus: one entry for the UN member state (see borders.northern-cyprus)."
       }
