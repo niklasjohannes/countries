@@ -231,6 +231,23 @@ describe('createMapView render', () => {
     assert.equal(byClass(view.svg, 'map-marker').length, 0);
   });
 
+  it('rings a target under about 10 px even when the meta does not flag it small', () => {
+    const custom = { entries: { aa: geometry.entries.km }, context: {} };
+    const info = { entries: { aa: { small: false, smallInContinent: false, tappable: true, neighbours: [] } } };
+    const frame = [...geometry.entries.km.bbox];
+    frame[2] += 600_000;
+    frame[3] += 600_000;
+    const view = makeView();
+    layOut(view.svg, VIEWPORT, frame);
+    view.render({ geometry: custom, meta: info, frame, frameLevel: 'subregion', target: 'aa' });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    // The same entry at a scale where it is big is left alone.
+    const near = [...geometry.entries.km.bbox];
+    layOut(view.svg, VIEWPORT, near);
+    view.render({ geometry: custom, meta: info, frame: near, frameLevel: 'subregion', target: 'aa' });
+    assert.equal(byClass(view.svg, 'map-marker').length, 0);
+  });
+
   it('rejects an unknown target, and one that is not drawn in this frame', () => {
     const view = makeView();
     assert.throws(() => view.render({ ...baseInput, target: 'zz' }), /`target`/);
@@ -545,6 +562,28 @@ describe('candidates of an ambiguous tap', () => {
     assert.equal(byClass(inset, 'map-target').length, 1);
     assert.equal(byClass(inset, 'map-candidate').length, 0);
     assert.equal(byClass(inset, 'map-candidate-marker').length, 0);
+  });
+
+  it('keeps the ring marker and inset of a small target through the reveal', () => {
+    const names = { km: 'Comoros', mz: 'Mozambique' };
+    // Target drawn from the start (map -> name cards).
+    let view = makeView();
+    view.render({ ...eastern, target: 'km' });
+    view.reveal({ target: 'km', correct: true, names });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    assert.equal(byClass(view.svg, 'map-inset').length, 1);
+    // Wrong pick: labels appear, the marker stays.
+    view = makeView();
+    view.render({ ...eastern, target: 'km' });
+    view.reveal({ target: 'km', picked: 'mz', correct: false, names });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    // Name -> tap: the marker appears at the reveal, also after an ambiguous tap on the target itself.
+    view = makeView();
+    view.render({ ...eastern, interactive: true });
+    view.markCandidates(['mz', 'km']);
+    view.reveal({ target: 'km', picked: 'km', correct: true, names });
+    assert.equal(byClass(view.svg, 'map-marker').length, 1);
+    assert.equal(byClass(byClass(view.svg, 'map-inset')[0], 'map-target').length, 1);
   });
 
   it('validates input and requires a render first', () => {
