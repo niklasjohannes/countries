@@ -171,7 +171,7 @@ describe('pickDistractors on the countries fixture', () => {
   });
 
   it('tops up from the same sub-region when neighbours run short', () => {
-    // Benin has 4 neighbours; with only one of them valid the rest must come
+    // Togo has 3 neighbours; with only one of them valid the rest must come
     // from western-africa before anywhere else.
     const rng = createRng(22);
     for (let round = 0; round < 300; round += 1) {
@@ -425,7 +425,12 @@ describe('pickDistractors and buildChoices validation', () => {
       () => pickDistractors({ code: 'fr', countries: [{ code: 'fr', continent: 'europe' }], rng }),
       { name: 'TypeError', message: /`countries\[0\]\.subregion`/ }
     );
-    const placed = { code: 'fr', continent: 'europe', subregion: 'western-europe' };
+    const placed = { code: 'fr', continent: 'europe', subregion: 'western-europe', quizzed: true };
+    const { quizzed, ...unquizzed } = placed;
+    assert.throws(
+      () => pickDistractors({ code: 'fr', countries: [unquizzed], rng }),
+      { name: 'TypeError', message: /`countries\[0\]\.quizzed`/ }
+    );
     assert.throws(
       () => pickDistractors({ code: 'fr', countries: [{ ...placed, quizzed: 'yes' }], rng }),
       { name: 'TypeError', message: /`countries\[0\]\.quizzed`/ }

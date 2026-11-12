@@ -1,7 +1,7 @@
 // Backup file format: the SRS progress as a JSON
 // file, so it survives the browser clearing site data. Pure: no DOM, no
 // storage, no clock (the caller passes `now` / `today`). The sheet that uses
-// it is js/backup-sheet.js.
+// it, js/backup-sheet.js, arrives in a later issue (issue 9).
 //
 // Format, version 1:
 //

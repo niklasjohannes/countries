@@ -129,6 +129,7 @@ describe('parseBackup', () => {
     'JSON null': ['null', BACKUP_ERRORS.notBackup],
     'a bare state map (no envelope)': [JSON.stringify(STATES), BACKUP_ERRORS.notBackup],
     'another app': [envelope({ app: 'other' }), BACKUP_ERRORS.notBackup],
+    'a backup from the flags app': [envelope({ app: 'flags' }), BACKUP_ERRORS.notBackup],
     'a missing version': [envelope({ version: undefined }), BACKUP_ERRORS.notBackup],
     'a string version': [envelope({ version: '1' }), BACKUP_ERRORS.notBackup],
     'version 0': [envelope({ version: 0 }), BACKUP_ERRORS.notBackup],

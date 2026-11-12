@@ -119,6 +119,9 @@ export function localToday(now = new Date()) {
 export function loadStates(today, storage) {
   const target = resolveStorage(storage);
   // Validates `today` before anything is read, so a bad argument still throws.
+  if (today === undefined) {
+    throw new TypeError('`today` must be a local `YYYY-MM-DD` date string.');
+  }
   sanitizeStates({}, today);
   const text = readItem(target, SRS_STORAGE_KEY);
   if (text === null) {

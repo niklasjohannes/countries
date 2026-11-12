@@ -14,6 +14,10 @@ const read = (name) => JSON.parse(readFileSync(join(FIXTURES, name), 'utf8'));
 const { meta, countries } = read('countries.json');
 const { frames, entries } = read('map-meta.json');
 
+// `names.json` is a hand-picked subset of names and aliases taken from the
+// flags app's data; it is not part of the countries.json contract, so it is
+// not checked here.
+
 describe('test/fixtures/countries.json', () => {
   it('lists the closed continents and 22 sub-regions', () => {
     assert.deepEqual(meta.continents, [...CONTINENTS]);

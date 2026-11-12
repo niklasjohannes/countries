@@ -147,7 +147,7 @@ function assertPlacementFields(countries) {
     if (typeof country.subregion !== 'string') {
       throw new TypeError(`\`countries[${i}].subregion\` must be a string.`);
     }
-    if (country.quizzed !== undefined && typeof country.quizzed !== 'boolean') {
+    if (typeof country.quizzed !== 'boolean') {
       throw new TypeError(`\`countries[${i}].quizzed\` must be a boolean.`);
     }
     if (country.parentCode !== undefined && country.parentCode !== null) {
@@ -251,7 +251,7 @@ function isRelated(candidate, target) {
  *
  * @param {object} options
  * @param {string} options.code The target (correct answer) code.
- * @param {{ code: string, continent: string, subregion: string, quizzed?: boolean, parentCode?: string | null }[]} options.countries
+ * @param {{ code: string, continent: string, subregion: string, quizzed: boolean, parentCode?: string | null }[]} options.countries
  *   All entries (the `countries` array of `data/countries.json`).
  * @param {string[]} [options.neighbours] Codes of the target's neighbours
  *   (`entries[code].neighbours` of `data/map-meta.json`). Codes not in
@@ -313,7 +313,7 @@ export function pickDistractors(options) {
  *
  * @param {object} options
  * @param {string} options.code The target (correct answer) code.
- * @param {{ code: string, continent: string, subregion: string, quizzed?: boolean, parentCode?: string | null }[]} options.countries
+ * @param {{ code: string, continent: string, subregion: string, quizzed: boolean, parentCode?: string | null }[]} options.countries
  *   All entries.
  * @param {string[]} [options.neighbours] Neighbour codes, as `pickDistractors`.
  * @param {() => number} options.rng Random source returning `[0, 1)`.
