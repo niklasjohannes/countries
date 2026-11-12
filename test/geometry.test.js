@@ -191,6 +191,61 @@ describe('geometry size budget', () => {
   });
 });
 
+describe('context land', () => {
+  const CONTEXT_PRESENT = {
+    europe: ['tr', 'kz', 'ir', 'gl', 'dz', 'ma'],
+    asia: ['ru', 'eg'],
+    africa: ['sa', 'es'],
+    'north-america': ['ve', 'co'],
+    'south-america': ['pa'],
+    oceania: ['id', 'ph']
+  };
+
+  it('is a separate key in each continent file, never in world.json', () => {
+    assert.equal(files.world.context, undefined);
+    for (const name of CONTINENTS) {
+      const context = files[name].context;
+      assert.equal(typeof context, 'object', name);
+      assert.ok(Object.keys(context).length > 0, name);
+      assert.deepEqual(Object.keys(files[name]), ['projection', 'scale', 'entries', 'context']);
+    }
+  });
+
+  it('holds only other continents, with rings and a bbox but no label', () => {
+    for (const name of CONTINENTS) {
+      for (const [code, entry] of Object.entries(files[name].context)) {
+        const country = countries.find((c) => c.code === code);
+        assert.ok(country, `${name}: ${code} is not an entry`);
+        assert.notEqual(country.continent, name, `${name}.context holds its own ${code}`);
+        assert.equal(files[name].entries[code], undefined, `${name}: ${code} in entries and context`);
+        assert.deepEqual(Object.keys(entry), ['rings', 'bbox'], `${name}.context.${code}`);
+        assert.ok(entry.rings.length > 0, `${name}.context.${code}`);
+        for (const ring of entry.rings) {
+          assert.deepEqual(ring[0], ring.at(-1), `${name}.context.${code} has an open ring`);
+          assert.ok(ring.flat().every(Number.isInteger), `${name}.context.${code} has non-integer coordinates`);
+        }
+      }
+    }
+  });
+
+  it('draws the neighbouring land the frames reach', () => {
+    for (const [name, codes] of Object.entries(CONTEXT_PRESENT)) {
+      for (const code of codes) assert.ok(files[name].context[code], `${name}.context lacks ${code}`);
+    }
+    assert.ok(files.asia.entries.tr && files.europe.context.tr, 'tr is own in asia and context in europe');
+  });
+
+  it('has a bbox that matches its rings', () => {
+    for (const name of CONTINENTS) {
+      for (const [code, { rings, bbox }] of Object.entries(files[name].context)) {
+        const xs = rings.flat().map((p) => p[0]);
+        const ys = rings.flat().map((p) => p[1]);
+        assert.deepEqual(bbox, [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)], `${name}.context.${code}`);
+      }
+    }
+  });
+});
+
 describe('neighbours', () => {
   it('covers every entry and is symmetric', () => {
     assert.deepEqual(Object.keys(neighbours).sort(), countries.map((country) => country.code).sort());
@@ -234,6 +289,17 @@ describe('neighbours', () => {
   });
 });
 
+// Borders between context land and own land, or two context entries, that
+// must meet exactly (listed pairs are sorted by code).
+const CONTEXT_BORDERS = {
+  europe: [['bg', 'tr'], ['gr', 'tr'], ['kz', 'ru'], ['ge', 'ru']],
+  asia: [['kz', 'ru'], ['mn', 'ru']],
+  africa: [['dz', 'ma'], ['il', 'jo']],
+  'south-america': [['co', 'pa']],
+  'north-america': [['co', 'pa'], ['gy', 've']],
+  oceania: [['id', 'pg']]
+};
+
 describe('shared borders', () => {
   const edgeKey = (a, b) => {
     const p = `${a[0]},${a[1]}`;
@@ -264,14 +330,19 @@ describe('shared borders', () => {
   };
 
   for (const name of [...CONTINENTS, 'world']) {
-    const entries = files[name].entries;
+    // Other continents' land (`context`) takes part in the topology, so its borders with own land are checked too.
+    const merged = { ...files[name].entries, ...(files[name].context ?? {}) };
+    const own = files[name].entries;
     const pairs = [];
     before(() => {
       for (const [a, list] of Object.entries(land)) {
-        for (const b of list) if (a < b && entries[a] && entries[b]) pairs.push([a, b]);
+        for (const b of list) if (a < b && merged[a] && merged[b]) pairs.push([a, b]);
       }
+      sharedPairs = pairs.filter(([a, b]) => (own[a] && own[b]) || (CONTEXT_BORDERS[name] ?? []).some(([x, y]) => x === a && y === b));
     });
-    const owners = edgeOwners(entries);
+    const owners = edgeOwners(merged);
+    // Every pair of own entries must share an edge; for pairs with context land (some of whose rings are left out) only the listed ones must.
+    let sharedPairs = [];
 
     it(`${name}.json: no edge has more than two owners, or one owner twice`, () => {
       for (const [k, codes] of owners) {
@@ -282,9 +353,10 @@ describe('shared borders', () => {
 
     it(`${name}.json: every land pair shares an edge and meets exactly along it`, () => {
       if (name !== 'oceania') assert.ok(pairs.length > 0, 'no land pairs in this file');
-      for (const [a, b] of pairs) {
+      for (const [a, b] of CONTEXT_BORDERS[name] ?? []) assert.ok(sharedPairs.some(([x, y]) => x === a && y === b), `${name}: ${a}/${b} should be present`);
+      for (const [a, b] of sharedPairs) {
         const shared = [];
-        for (const [s, t] of segmentsOf(entries[a].rings)) {
+        for (const [s, t] of segmentsOf(merged[a].rings)) {
           const codes = owners.get(edgeKey(s, t));
           if (codes.includes(b)) shared.push([s, t]);
         }
@@ -297,8 +369,8 @@ describe('shared borders', () => {
           const normal = [(-(t[1] - s[1]) / length) * 0.3, ((t[0] - s[0]) / length) * 0.3];
           const left = [mid[0] + normal[0], mid[1] + normal[1]];
           const right = [mid[0] - normal[0], mid[1] - normal[1]];
-          const inA = [pointInRings(left, entries[a].rings), pointInRings(right, entries[a].rings)];
-          const inB = [pointInRings(left, entries[b].rings), pointInRings(right, entries[b].rings)];
+          const inA = [pointInRings(left, merged[a].rings), pointInRings(right, merged[a].rings)];
+          const inB = [pointInRings(left, merged[b].rings), pointInRings(right, merged[b].rings)];
           assert.ok(inA[0] !== inA[1] && inB[0] !== inB[1] && inA[0] !== inB[0],
             `${name}: ${a}/${b} do not meet cleanly along ${s}-${t}`);
         }
@@ -308,11 +380,11 @@ describe('shared borders', () => {
     it(`${name}.json: land pairs never cross or run alongside each other`, () => {
       for (const [first, second] of pairs) {
         for (const [a, b] of [[first, second], [second, first]]) {
-          const segmentsB = segmentsOf(entries[b].rings);
-          const verticesB = new Set(entries[b].rings.flat().map((v) => `${v[0]},${v[1]}`));
-          for (const [p, q] of segmentsOf(entries[a].rings)) {
+          const segmentsB = segmentsOf(merged[b].rings);
+          const verticesB = new Set(merged[b].rings.flat().map((v) => `${v[0]},${v[1]}`));
+          for (const [p, q] of segmentsOf(merged[a].rings)) {
             const box = [Math.min(p[0], q[0]), Math.min(p[1], q[1]), Math.max(p[0], q[0]), Math.max(p[1], q[1])];
-            if (!overlaps(box, entries[b].bbox, 1)) continue;
+            if (!overlaps(box, merged[b].bbox, 1)) continue;
             for (const [s, t] of segmentsB) {
               if (Math.max(s[0], t[0]) < box[0] - 1 || Math.min(s[0], t[0]) > box[2] + 1) continue;
               if (Math.max(s[1], t[1]) < box[1] - 1 || Math.min(s[1], t[1]) > box[3] + 1) continue;
@@ -325,7 +397,7 @@ describe('shared borders', () => {
             // b's way round between those points is long or far away.
             if (owners.get(edgeKey(p, q)).includes(b)) continue;
             if (!verticesB.has(`${p[0]},${p[1]}`) || !verticesB.has(`${q[0]},${q[1]}`)) continue;
-            const detour = shortDetour(entries[b].rings, p, q, (s, t) => owners.get(edgeKey(s, t)).length === 1);
+            const detour = shortDetour(merged[b].rings, p, q, (s, t) => owners.get(edgeKey(s, t)).length === 1);
             assert.ok(!detour, `${name}: ${a} edge ${p}-${q} and ${b} take different paths along their border`);
           }
         }

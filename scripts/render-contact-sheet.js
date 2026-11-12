@@ -26,6 +26,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT_DIR = resolve(ROOT, '.tmp/contact-sheet');
 const QUIZZED_FILL = '#d4d4d4';
 const CONTEXT_FILL = '#bcbcbc';
+const BACKDROP_FILL = '#ececec';
 const SMALL_FILL = '#8a8a8a';
 const BORDER = '#2a2a2a';
 const FRAME_SHEET_WIDTH_PX = 600;
@@ -78,12 +79,17 @@ const overlaps = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] 
  */
 function drawEntries(file, meta, window, highlight = null) {
   const parts = [];
-  const drawn = Object.entries(file.entries)
-    .filter(([, entry]) => overlaps(entry.bbox, window))
-    .sort(([a], [b]) => Number(meta.get(a).quizzed) - Number(meta.get(b).quizzed) || a.localeCompare(b));
-  for (const [code, entry] of drawn) {
-    const fill = code === highlight ? SMALL_FILL : meta.get(code).quizzed ? QUIZZED_FILL : CONTEXT_FILL;
-    parts.push(`<path fill="${fill}" fill-rule="evenodd" stroke="${BORDER}" stroke-width="0.6" vector-effect="non-scaling-stroke" d="${pathOf(entry.rings)}"/>`);
+  // Other continents' land first (lightest), then own context-only land, then quizzed land.
+  const layers = [
+    Object.entries(file.context ?? {}).map(([code, entry]) => [code, entry, BACKDROP_FILL]),
+    Object.entries(file.entries).filter(([code]) => !meta.get(code).quizzed).map(([code, entry]) => [code, entry, CONTEXT_FILL]),
+    Object.entries(file.entries).filter(([code]) => meta.get(code).quizzed).map(([code, entry]) => [code, entry, QUIZZED_FILL])
+  ];
+  for (const layer of layers) {
+    for (const [code, entry, fill] of layer.filter(([, entry]) => overlaps(entry.bbox, window)).sort(([a], [b]) => a.localeCompare(b))) {
+      const colour = code === highlight && fill !== BACKDROP_FILL ? SMALL_FILL : fill;
+      parts.push(`<path fill="${colour}" fill-rule="evenodd" stroke="${BORDER}" stroke-width="0.6" vector-effect="non-scaling-stroke" d="${pathOf(entry.rings)}"/>`);
+    }
   }
   return parts.join('\n');
 }
@@ -119,22 +125,23 @@ export function renderFrame(key, frame, file, meta) {
 }
 
 /**
- * The small-entries sheet: for each small entry, its circle marker on the
- * sub-region frame at the 375 px render width, and an inset zoom.
+ * A small-entries sheet: for each entry, its circle marker on a frame at the
+ * 375 px render width, and an inset zoom.
  * @param {{code: string, name: string, continent: string, subregion: string}[]} small
  * @param {Record<string, object>} files continent geometry files
- * @param {Record<string, number[]>} frames
+ * @param {(country: object) => number[]} frameOf the frame the markers are sized for
+ * @param {string} title
  * @param {Map<string, {quizzed: boolean}>} meta countries by code
  * @returns {string}
  */
-export function renderSmallEntries(small, files, frames, meta) {
+export function renderSmallEntries(small, files, frameOf, title, meta) {
   const rows = Math.ceil(small.length / COLUMNS);
   const width = COLUMNS * (CELL.width + CELL.gap) + CELL.gap;
   const height = rows * (CELL.height + CELL.gap) + CELL.gap;
   const cells = small.map((country, i) => {
     const file = files[country.continent];
     const entry = file.entries[country.code];
-    const frame = frames[country.subregion];
+    const frame = frameOf(country);
     const left = CELL.gap + (i % COLUMNS) * (CELL.width + CELL.gap);
     const top = CELL.gap + Math.floor(i / COLUMNS) * (CELL.height + CELL.gap);
 
@@ -171,7 +178,7 @@ export function renderSmallEntries(small, files, frames, meta) {
   });
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
-    '<title>Small entries: circle marker (left) and inset (right)</title>',
+    `<title>${escapeXml(title)}: circle marker (left) and inset (right)</title>`,
     `<rect width="${width}" height="${height}" fill="#fff"/>`,
     ...cells,
     '</svg>',
@@ -234,9 +241,15 @@ function main() {
     tiles.push({ file, caption: `${isContinent ? 'continent' : 'sub-region'}: ${key}${override}` });
   }
 
-  const small = countries.filter((country) => entries[country.code].small);
-  writeFileSync(resolve(OUT_DIR, 'small-entries.svg'), renderSmallEntries(small, files, frames, meta));
-  tiles.push({ wide: true, file: 'small-entries.svg', caption: `small entries (${small.length}): circle marker, inset` });
+  const sheets = [
+    ['small-entries.svg', 'small', (country) => frames[country.subregion], 'sub-region frame'],
+    ['small-entries-continent.svg', 'smallInContinent', (country) => frames[country.continent], 'continent frame']
+  ];
+  for (const [file, flag, frameOf, label] of sheets) {
+    const small = countries.filter((country) => entries[country.code][flag]);
+    writeFileSync(resolve(OUT_DIR, file), renderSmallEntries(small, files, frameOf, `${flag} entries`, meta));
+    tiles.push({ wide: true, file, caption: `${flag} entries (${small.length}) at the ${label}: circle marker, inset` });
+  }
 
   writeFileSync(resolve(OUT_DIR, 'index.html'), renderIndex(tiles));
   console.log(`Wrote ${tiles.length} SVGs and index.html to .tmp/contact-sheet/.`);

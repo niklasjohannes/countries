@@ -178,13 +178,25 @@ The regeneration test fails if `data/countries.json` isn't byte for byte what th
 ```json
 { "projection": { "name": "laea", "centre": [20, 2], "radiusKm": 6371, "origin": [x0, y1], "note": "…" },
   "scale": 10,
-  "entries": { "<code>": { "rings": [[[x, y], …], …], "bbox": [x0, y0, x1, y1], "label": [x, y] } } }
+  "entries": { "<code>": { "rings": [[[x, y], …], …], "bbox": [x0, y0, x1, y1], "label": [x, y] } },
+  "context": { "<code>": { "rings": [[[x, y], …], …], "bbox": [x0, y0, x1, y1] } } }
 ```
+
+`context` is in the continent files only.
 
 - `scale` is integer units per km. With (X, Y) the projection in km, `x = round((X − origin[0]) · scale)` and `y = round((origin[1] − Y) · scale)`, so y grows downwards, as in SVG.
 - Rings are closed (the first point is repeated as the last). An entry's outer rings and holes wind in opposite directions, so both `fill-rule` values draw holes (Lesotho in South Africa, Vatican City in Italy, San Marino in Italy).
 - `label` is Natural Earth's `LABEL_X`/`LABEL_Y` of the entry's own feature, projected. Entries split out of another feature have no label of their own; they get a point inside their largest ring, and so does any entry whose label would fall outside it. After quantising, a label outside its rings moves to the nearest grid point inside the largest ring. Only a ring too small to hold any grid point inside it (Vatican City and Monaco in `world.json`, say) keeps its rounded surface point, within one unit of the ring.
-- Each continent file holds that continent's entries, context-only ones included. `world.json` holds all 246.
+- Each continent file holds that continent's entries, context-only ones included, under `entries`. `world.json` holds all 246. Continent files also have a `context` key; see "Context land" below.
+
+## Context land
+
+(Owner decision, issue 6.) A frame shows more than its own continent: the Europe frame reaches Turkey, Kazakhstan and Iran, and the Micronesia frame reaches Indonesia. So each continent file also has a top-level `context` key, `{ "<code>": { "rings", "bbox" } }`, holding the land of *other* continents near its frames. It is never under `entries`: codes never collide (`tr` is in `asia.entries` and in `europe.context`), and anything that reads `entries` (hit tests, cards) stays own-continent only. Context land has no `label`, and is never highlighted, tappable or asked. `world.json` has none.
+
+- **Which land.** `build-geometry.js` builds each continent twice. Pass 1 builds only its own entries, to find its frames (the rules in `scripts/frames.js`). Pass 2 adds every other entry's rings that (a) have a vertex inside the bounding box of the continent's frames, continent and sub-regions, padded by another `FRAME_PADDING` (4%) of its longer side, and (b) lie entirely within 120° of the file's projection centre. (b) leaves out land near the centre's antipode, where LAEA stretches it until arcs cross. Rings are whole, not clipped to the box, so a large neighbour (Russia in the Asia file) is complete and its far edge is simply off-frame.
+- **Same topology.** Context rings go through the same shared-arc build as own land, in the same projection, so a context border with own land (Turkey–Greece, Russia–Kazakhstan) is one arc and meets exactly. The geometry tests check that, and that no edge has more than two owners, for context land too.
+- **Coarser.** Arcs used only by context rings are simplified at 6 times the file's tolerance, and their islets are dropped below 6 times its threshold (`CONTEXT_COARSENING`), to keep the continents under 1 MB. Context land is a backdrop.
+- **The file's extent** (`projection.origin`) now covers the context land as well.
 
 ## Neighbours
 
@@ -203,7 +215,7 @@ node scripts/build-geometry.js
 node --test
 ```
 
-`node scripts/build-geometry.js --check` reports any stale file. `test/geometry.test.js` regenerates everything and compares byte for byte. It also checks coverage, the file contract, the size budget (continents ≤ 1 MB in total, `world.json` ≤ 250 KB), symmetric neighbours, that every land pair shares at least one edge and meets exactly along it (no edge with more than two owners, no crossing segments, probes on both sides of every shared edge), that each breakaway area is at least 95% its ruled entry in its continent file and in `world.json`, and the spot checks: Crimea in Ukraine, Lesotho as a hole in South Africa, Kaliningrad in Russia, Alaska in north-america, Fiji and Chukotka without an antimeridian seam, and Kiribati and the Aleutians in one piece across 180°.
+`node scripts/build-geometry.js --check` reports any stale file. `test/geometry.test.js` regenerates everything and compares byte for byte. It also checks coverage, the file contract, the size budget (continents ≤ 1 MB in total, `world.json` ≤ 250 KB; the continent files are about 0.97 MB with their context land), symmetric neighbours, that every land pair shares at least one edge and meets exactly along it (no edge with more than two owners, no crossing segments, probes on both sides of every shared edge), that each breakaway area is at least 95% its ruled entry in its continent file and in `world.json`, and the spot checks: Crimea in Ukraine, Lesotho as a hole in South Africa, Kaliningrad in Russia, Alaska in north-america, Fiji and Chukotka without an antimeridian seam, and Kiribati and the Aleutians in one piece across 180°.
 
 To re-vendor Natural Earth, download the new tag's files into `.vendor-tmp/`, hash them, copy them unchanged into `vendor/natural-earth/`, and update `NATURAL_EARTH`, the table above and `THIRD_PARTY_NOTICES.md`.
 
@@ -218,7 +230,7 @@ node --test
 
 ```json
 { "frames": { "<continent|subregion>": [x0, y0, x1, y1] },
-  "entries": { "<code>": { "neighbours": ["…"], "small": false, "tappable": true } } }
+  "entries": { "<code>": { "neighbours": ["…"], "small": false, "tappable": true, "smallInContinent": false } } }
 ```
 
 - **Frames** are in the coordinate space of the continent's geometry file (integer units, `scale` per km). There are 27: the six continents and the 22 sub-regions, where `south-america` is both and has one frame.
@@ -226,8 +238,9 @@ node --test
   - Frames are not forced to any aspect ratio; the renderer fits them.
   - **Overrides** (`scripts/frame-overrides.js`, each with a one-line reason) crop single entries to a lon/lat box before the box is padded. The entry itself is untouched; the renderer clips it at the frame edge. Current rows: `europe` and `eastern-europe` crop Russia at 60°E so they stop at the Urals; `europe` and `southern-europe` crop Spain and Portugal to the mainland so the Canary Islands, Madeira and the Azores do not stretch them. The Europe frame still contains Svalbard and Iceland, because those are quizzed.
 - **`small`**: the entry's bbox, at its sub-region frame rendered 375 CSS px wide, is under 12 × 12 CSS px (both sides, strictly). It uses the bbox, so a country of far-apart islands (Kiribati, the Marshall Islands) is not small. `tappable` is `!small`.
+- **`smallInContinent`** (owner decision, issue 6): the same rule at the entry's *continent* frame. `small`/`tappable` are unchanged, so tap cards are unaffected. The renderer shows a marker and inset when an entry is small in whichever frame is on screen. Every small entry is also small in its continent.
 - **`neighbours`** is carried over unchanged from the geometry build; see "Neighbours" above. Maritime parameters (`MARITIME_NEIGHBOURS` in `scripts/country-overrides.js`): an island with no land neighbour gets its nearest **3** entries within **1,500 km**, or its **single nearest** entry when none is that close; the relation is then made symmetric. The generator throws if any entry has no neighbour list.
 
 ## Contact sheet
 
-`node scripts/render-contact-sheet.js` writes `.tmp/contact-sheet/` (git-ignored): one SVG per frame, `small-entries.svg` (circle marker and inset for every small entry) and `index.html`. It is a dev-only check on the frames: the app never serves or precaches it. Each frame is drawn from its continent's geometry file only, so land of other continents is missing at the edges.
+`node scripts/render-contact-sheet.js` writes `.tmp/contact-sheet/` (git-ignored): one SVG per frame (own land, then the file's context land in a lighter grey), `small-entries.svg` (circle marker and inset for every `small` entry, at its sub-region frame), `small-entries-continent.svg` (the same for every `smallInContinent` entry, at its continent frame) and `index.html`. It is a dev-only check on the frames: the app never serves or precaches it.

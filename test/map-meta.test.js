@@ -53,10 +53,11 @@ describe('map-meta contract shape', () => {
     }
   });
 
-  it('has an entry for every country with exactly neighbours, small and tappable', () => {
+  it('has an entry for every country with exactly neighbours, small, tappable and smallInContinent', () => {
     assert.deepEqual(Object.keys(entries).sort(), [...codes].sort());
     for (const [code, entry] of Object.entries(entries)) {
-      assert.deepEqual(Object.keys(entry), ['neighbours', 'small', 'tappable'], code);
+      assert.deepEqual(Object.keys(entry), ['neighbours', 'small', 'tappable', 'smallInContinent'], code);
+      assert.equal(typeof entry.smallInContinent, 'boolean', code);
       assert.ok(Array.isArray(entry.neighbours), code);
       assert.equal(typeof entry.small, 'boolean', code);
       assert.equal(typeof entry.tappable, 'boolean', code);
@@ -175,6 +176,31 @@ describe('small entries', () => {
     const small = Object.entries(entries).filter(([, entry]) => entry.small);
     assert.ok(small.length > 0);
     for (const [code, entry] of small) assert.equal(entry.tappable, false, code);
+  });
+});
+
+describe('small entries in the continent frame', () => {
+  it('follow the same rule at the continent frame', () => {
+    for (const { code, continent } of countries) {
+      const bbox = files[continent].entries[code].bbox;
+      const frame = frames[continent];
+      const pxPerUnit = 375 / (frame[2] - frame[0]);
+      const small = (bbox[2] - bbox[0]) * pxPerUnit < 12 && (bbox[3] - bbox[1]) * pxPerUnit < 12;
+      assert.equal(entries[code].smallInContinent, small, code);
+    }
+  });
+
+  it('include every small entry (a continent frame is wider) and more', () => {
+    for (const [code, entry] of Object.entries(entries)) {
+      if (entry.small) assert.equal(entry.smallInContinent, true, `${code} is small in its sub-region but not its continent`);
+    }
+    const n = (key) => Object.values(entries).filter((entry) => entry[key]).length;
+    assert.ok(n('smallInContinent') > n('small'));
+  });
+
+  it('leave small and tappable as the sub-region rule defines them', () => {
+    assert.equal(entries.mt.small, true);
+    for (const [code, entry] of Object.entries(entries)) assert.equal(entry.tappable, !entry.small, code);
   });
 });
 
