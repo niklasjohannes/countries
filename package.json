@@ -1,0 +1,9 @@
+{
+  "name": "countries",
+  "private": true,
+  "description": "Zero-dependency country-outline learning PWA. This file only marks js/ and test/ as ES modules and aliases `npm test` to `node --test` — never add dependencies.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
