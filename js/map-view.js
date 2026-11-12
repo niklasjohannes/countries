@@ -19,6 +19,10 @@
 // also shown in the inset, with its marker; only the first small one gets the
 // inset. `clearCandidates()` (or `reveal`) takes it all away.
 //
+// Shading (`shade(codes)`, used by test results): fills the given entries in
+// the shade colour and rings the small ones with a circle marker so they stay
+// visible. No labels, names or codes are involved.
+//
 // Layers, back to front: `context` land of other continents (lighter grey,
 // never highlighted, labelled or tappable, never passed to `hitTest`), the
 // frame's own land, the target fill and wrong-pick outline, the circle marker
@@ -31,7 +35,7 @@
 // this module does not. Call `relayout()` after attaching `view.element` to
 // the document, as a fallback for when `ResizeObserver` has not fired yet.
 
-import { computeInset, getPxPerUnit, hitTest, ringsToPathData } from './map.js';
+import { MARKER_MIN_RADIUS_PX, computeInset, getPxPerUnit, hitTest, ringsToPathData } from './map.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -269,6 +273,9 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       text.setAttribute('stroke-width', LABEL_HALO_PX * unitsPerPx);
     };
     state.markers.forEach((text) => sizeMarker(text, 1 / pxPerUnit));
+    for (const circle of state.shadeMarkers) {
+      circle.setAttribute('r', MARKER_MIN_RADIUS_PX / pxPerUnit);
+    }
     if (state.inset !== null) {
       // The inset maps its square source into its square target.
       const { source, target } = computeInset(state.inset.entry, state.frame, viewport);
@@ -448,7 +455,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
 
       state = {
         scene, frame, meta, geometry, paths, byCode, hitEntries,
-        interactive, target, picked: null, revealed: false, labels: [], inset: null, candidates: null, markers: [], layer: make('g', { class: 'map-label-layer' })
+        interactive, target, picked: null, revealed: false, labels: [], inset: null, candidates: null, markers: [], shadeMarkers: [], layer: make('g', { class: 'map-label-layer' })
       };
       svg.append(state.layer);
       if (target !== null) {
@@ -574,6 +581,47 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         addInset(small, 'candidate');
       } else if (state.inset !== null) {
         state.inset.sourceKey = null;
+      }
+      relayout();
+    },
+
+    /**
+     * Shades entries (the missed ones on the results map): fills them with the
+     * shade style and puts a circle marker on each one that is small at this
+     * frame. Replaces earlier shading. No labels, names or codes reach the DOM.
+     *
+     * @param {string[]} codes Entries drawn in the current frame; may be empty. Throws if `render` was given a `target`.
+     * @returns {void}
+     */
+    shade(codes) {
+      if (state === null) {
+        throw new Error('`render` must be called before `shade`.');
+      }
+      if (!Array.isArray(codes) || !codes.every((code) => typeof code === 'string')) {
+        throw new TypeError('`codes` must be an array of country codes.');
+      }
+      if (!codes.every((code) => state.paths.has(code))) {
+        throw new RangeError('`codes` must be entries drawn in the current frame.');
+      }
+      if (state.target !== null) {
+        throw new RangeError('`shade` cannot be used on a card rendered with a `target`.');
+      }
+      const shaded = new Set(codes);
+      for (const [code, path] of state.paths) {
+        path.setAttribute('class', shaded.has(code) ? 'map-land map-shaded' : 'map-land');
+      }
+      for (const circle of state.shadeMarkers) {
+        svg.removeChild(circle);
+      }
+      state.shadeMarkers = [];
+      for (const code of shaded) {
+        const item = state.byCode.get(code);
+        const point = markerPoint(code);
+        if (item.small && point !== null) {
+          const circle = make('circle', { class: 'map-marker map-marker-shade', cx: point[0], cy: point[1], r: 1 });
+          svg.insertBefore(circle, state.layer);
+          state.shadeMarkers.push(circle);
+        }
       }
       relayout();
     },

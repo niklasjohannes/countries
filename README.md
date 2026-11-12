@@ -10,6 +10,8 @@ Intended to be served at **<https://niklasjohannes.github.io/countries/>** once 
 | --- | --- |
 | `index.html` | App entry point (placeholder until the app shell lands) |
 | `css/` | Stylesheets |
+| `fonts/` | Courier Prime (SIL OFL, see `THIRD_PARTY_NOTICES.md`) |
+| `img/` | Pixel ✓/✕ marks |
 | `js/` | App modules (SRS engine, quiz engine, map logic, views) |
 | `js/views/` | One module per screen |
 | `data/` | Country metadata (`countries.json`) and projected geometry (`geometry/`), both generated |

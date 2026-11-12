@@ -30,6 +30,7 @@
 // unmount, so it spans Keep going.
 
 import { DIRECTION_NAME_TO_TAP } from '../cards.js';
+import { META_URL, getGeometryUrl, loadJson } from '../data.js';
 import { createMapView } from '../map-view.js';
 import {
   answerCurrent,
@@ -48,18 +49,7 @@ import { ROUND_SIZE, pickRound } from '../srs.js';
 import { QUIZ_MODES, loadStates, localToday } from '../storage.js';
 import { el } from '../ui.js';
 
-const META_URL = './data/map-meta.json';
-const geometryUrl = (continent) => `./data/geometry/${continent}.json`;
-
 let controller = null;
-
-async function fetchJson(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Fetching ${url} failed with HTTP ${response.status}.`);
-  }
-  return response.json();
-}
 
 /**
  * Render the practice view and start a round.
@@ -361,10 +351,10 @@ export function mount(container, context) {
         return;
       }
       container.replaceChildren(el('p', { class: 'status' }, ['Loading…']));
-      meta ??= await fetchJson(META_URL);
+      meta ??= await loadJson(META_URL);
       const continents = new Set(codes.map((code) => byCode.get(code).continent));
       await Promise.all([...continents].filter((continent) => !geometries.has(continent)).map(async (continent) => {
-        geometries.set(continent, await fetchJson(geometryUrl(continent)));
+        geometries.set(continent, await loadJson(getGeometryUrl(continent)));
       }));
       if (signal.aborted) {
         return;

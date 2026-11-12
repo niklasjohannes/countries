@@ -1,5 +1,5 @@
 // App entry point: loads the country data once, then shows one view at a
-// time (home / practice / test). No URL routing: every page load starts on
+// time (home / practice / test / results). No URL routing: every page load starts on
 // home, which is what resets the continent filter to "All".
 //
 // ---- View contract ----
@@ -24,7 +24,7 @@
 //              including non-quizzed entries; count and filter through
 //              `js/srs.js`, which only counts `quizzed` ones.
 //   navigate   `(name, params?) => void`: unmount this view and mount view
-//              `name` ('home' | 'practice' | 'test') with `params`. Called
+//              `name` ('home' | 'practice' | 'test' | 'results') with `params`. Called
 //              during another view's `mount` or `unmount`, it is deferred
 //              (microtask) until that transition finishes.
 //   params     What the caller passed to `navigate` (frozen; `{}` if none).
@@ -39,19 +39,20 @@
 //
 //   js/views/home.js      css/style.css     issue 9 (home, base styles)
 //   js/views/practice.js  css/practice.css  issue 10
-//   js/views/test.js      css/test.css      issue 11
+//   js/views/test.js      css/test.css      issue 11 (also results.js)
 //
 // The service worker (issue 12) is not registered here yet.
 
 import * as home from './views/home.js';
 import * as practice from './views/practice.js';
+import * as results from './views/results.js';
 import * as test from './views/test.js';
 import { watchResume } from './resume.js';
 import { el } from './ui.js';
 
 const DATA_URL = './data/countries.json';
 
-const VIEWS = Object.freeze({ home, practice, test });
+const VIEWS = Object.freeze({ home, practice, test, results });
 
 let countries = null;
 let current = null;

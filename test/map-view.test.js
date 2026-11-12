@@ -557,3 +557,53 @@ describe('candidates of an ambiguous tap', () => {
     view.clearCandidates();
   });
 });
+
+describe('shade', () => {
+  it('fills the given entries and circles the small ones, with no text', () => {
+    const view = makeView();
+    view.render({ ...baseInput, frame: meta.frames['eastern-africa'], interactive: true });
+    view.shade(['mz', 'km']);
+    assert.equal(byClass(view.svg, 'map-shaded').length, 2);
+    const circles = byClass(view.svg, 'map-marker-shade');
+    assert.equal(circles.length, 1);
+    assert.deepEqual([Number(circles[0].attrs.cx), Number(circles[0].attrs.cy)], geometry.entries.km.label);
+    assert.ok(Number(circles[0].attrs.r) > 0);
+    assert.equal(all(view.svg, (n) => n.tag === 'text').length, 0);
+  });
+
+  it('replaces earlier shading and accepts an empty list', () => {
+    const view = makeView();
+    view.render({ ...baseInput, frame: meta.frames['eastern-africa'] });
+    view.shade(['mz', 'km']);
+    view.shade(['mz']);
+    assert.equal(byClass(view.svg, 'map-shaded').length, 1);
+    assert.equal(byClass(view.svg, 'map-marker-shade').length, 0);
+    view.shade([]);
+    assert.equal(byClass(view.svg, 'map-shaded').length, 0);
+  });
+
+  it('leaks no names or codes', () => {
+    const view = makeView();
+    view.render({ ...baseInput, frame: meta.frames['eastern-africa'] });
+    view.shade(['mz', 'km']);
+    const values = serialiseValues(view.element).toLowerCase();
+    for (const { name } of countries) {
+      assert.ok(!values.includes(name.toLowerCase()), `name ${name} in DOM`);
+    }
+  });
+
+  it('validates input and requires a render first', () => {
+    const view = makeView();
+    assert.throws(() => view.shade(['za']), /`render`/);
+    view.render(baseInput);
+    assert.throws(() => view.shade('za'), /`codes`/);
+    assert.throws(() => view.shade([1]), /`codes`/);
+    assert.throws(() => view.shade(['xx']), /drawn in the current frame/);
+  });
+
+  it('refuses a card rendered with a target', () => {
+    const view = makeView();
+    view.render({ ...baseInput, target: 'za' });
+    assert.throws(() => view.shade(['za']), /`target`/);
+  });
+});

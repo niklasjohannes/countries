@@ -1,15 +1,18 @@
 /*
- * Map renderer (js/map-view.js). Land is greyscale; the target is the accent.
- * Context land (other continents) is lighter than the frame's own land.
+ * Map renderer (js/map-view.js), PLAN decision 4: light-grey land with thin
+ * dark borders on a white sea, a lighter context (other continents), the
+ * target in the one muted accent, a heavy outline on a wrong pick, accent
+ * circle markers for small countries, numbered candidate markers, and labels
+ * with a white halo. No per-country colours.
+ *
+ * The colours are tokens in css/style.css (`--map-*`). `.map-view` fills its
+ * box (`.practice-map`, `.test-map`, `.results-map`), which positions it.
  */
 
 .map-view {
-  --map-land: #c9c9c9;
-  --map-context: #ececec;
-  --map-line: #ffffff;
-
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  background: var(--map-sea);
 }
 
 .map-svg {
@@ -18,43 +21,60 @@
   height: 100%;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .map-context {
   fill: var(--map-context);
-  stroke: var(--map-line);
+  stroke: var(--color-border);
   stroke-width: 0.5px;
+  stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
 .map-land {
   fill: var(--map-land);
   stroke: var(--map-line);
-  stroke-width: 0.75px;
+  stroke-width: 0.6px;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
 .map-target {
   fill: var(--color-accent);
+  /* A dark edge keeps a tiny target (an island at continent level) visible. */
+  stroke: var(--color-text);
+  stroke-width: 1.25px;
+}
+
+/* Test results: the missed entries, shaded dark. */
+.map-shaded {
+  fill: var(--map-shade);
 }
 
 .map-picked {
   stroke: var(--color-text);
-  stroke-width: 2.5px;
+  stroke-width: 3px;
+  stroke-dasharray: 6 3;
 }
 
+/* Circle marker around a small target (and around small shaded entries). */
 .map-marker {
   fill: none;
   stroke: var(--color-accent);
-  stroke-width: 2px;
+  stroke-width: 2.5px;
   vector-effect: non-scaling-stroke;
 }
 
-.map-inset-box {
-  fill: var(--color-bg);
+.map-marker-shade {
   stroke: var(--color-text);
-  stroke-width: 1.5px;
+}
+
+.map-inset-box {
+  fill: var(--map-sea);
+  stroke: var(--color-text);
+  stroke-width: 2px;
   vector-effect: non-scaling-stroke;
 }
 
@@ -68,18 +88,20 @@
   stroke-linejoin: round;
   paint-order: stroke;
   font-family: var(--font-sans);
+  font-weight: 700;
   pointer-events: none;
 }
 
 .map-label-target {
-  font-weight: bold;
+  font-weight: 700;
+  text-decoration: underline;
 }
 
 /* Candidates of an ambiguous tap: outlined, with a digit at their label point. */
 .map-candidate {
   fill: var(--map-land);
   stroke: var(--color-text);
-  stroke-width: 2.5px;
+  stroke-width: 3px;
 }
 
 .map-candidate-marker {
@@ -88,6 +110,58 @@
   stroke-linejoin: round;
   paint-order: stroke;
   font-family: var(--font-sans);
-  font-weight: bold;
+  font-weight: 700;
   pointer-events: none;
+}
+
+/* Forced colours: explicit system colours, so land, target and borders keep
+   their roles (fills are otherwise replaced and the shapes would merge). */
+@media (forced-colors: active) {
+  .map-svg {
+    forced-color-adjust: none;
+  }
+
+  .map-view {
+    background: Canvas;
+  }
+
+  .map-context {
+    fill: Canvas;
+    stroke: GrayText;
+  }
+
+  .map-land {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+
+  .map-target,
+  .map-shaded {
+    fill: Highlight;
+  }
+
+  .map-marker,
+  .map-marker-shade {
+    stroke: Highlight;
+  }
+
+  .map-candidate {
+    fill: Canvas;
+    stroke: Highlight;
+  }
+
+  .map-picked {
+    stroke: LinkText;
+  }
+
+  .map-inset-box {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+
+  .map-label,
+  .map-candidate-marker {
+    fill: CanvasText;
+    stroke: Canvas;
+  }
 }
