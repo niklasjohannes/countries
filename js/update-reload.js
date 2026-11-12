@@ -2,9 +2,11 @@
 // js/app.js feeds it events and does the reload; test/update-reload.test.js
 // covers the rules.
 //
-// `sw.js` calls `skipWaiting()`, so a new deploy takes over an open page at
-// once (`controllerchange`). The page's JS is then the old version, so it
-// reloads, but only where nothing is lost:
+// `sw.js` does not skip waiting on install; js/sw-update.js posts `SKIP_WAITING`
+// when it is safe, and the takeover is a `controllerchange`. The page's JS is
+// then the old version, so it reloads, but only where nothing is lost (the
+// rules below also hold if a takeover arrives at a bad moment, say from a
+// second tab):
 //   - the first `controllerchange` on a page that had no worker and no
 //     registration (first visit) is not an update: no reload. A page that
 //     loaded with a registration but no controller (a hard reload) is
