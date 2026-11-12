@@ -590,7 +590,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
      * shade style and puts a circle marker on each one that is small at this
      * frame. Replaces earlier shading. No labels, names or codes reach the DOM.
      *
-     * @param {string[]} codes Entries drawn in the current frame; may be empty.
+     * @param {string[]} codes Entries drawn in the current frame; may be empty. Throws if `render` was given a `target`.
      * @returns {void}
      */
     shade(codes) {
@@ -603,14 +603,18 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       if (!codes.every((code) => state.paths.has(code))) {
         throw new RangeError('`codes` must be entries drawn in the current frame.');
       }
+      if (state.target !== null) {
+        throw new RangeError('`shade` cannot be used on a card rendered with a `target`.');
+      }
+      const shaded = new Set(codes);
       for (const [code, path] of state.paths) {
-        path.setAttribute('class', codes.includes(code) ? 'map-land map-shaded' : 'map-land');
+        path.setAttribute('class', shaded.has(code) ? 'map-land map-shaded' : 'map-land');
       }
       for (const circle of state.shadeMarkers) {
         svg.removeChild(circle);
       }
       state.shadeMarkers = [];
-      for (const code of codes) {
+      for (const code of shaded) {
         const item = state.byCode.get(code);
         const point = markerPoint(code);
         if (item.small && point !== null) {

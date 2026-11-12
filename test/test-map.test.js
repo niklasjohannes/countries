@@ -5,12 +5,12 @@ import { readFileSync } from 'node:fs';
 import {
   SMALL_SIDE_PX,
   WORLD_KEY,
-  WORLD_MAP_WIDTH_PX,
   deriveWorldMeta,
   getEntriesFrame,
   getResultsGeometryKey,
   getScopeContinent
 } from '../js/test-map.js';
+import { getPxPerUnit } from '../js/map.js';
 import { FRAME_LEVEL_CONTINENT, planScene } from '../js/map-view.js';
 import { getScopeCodes } from '../js/test-pass.js';
 
@@ -52,7 +52,8 @@ describe('getEntriesFrame', () => {
 
 describe('deriveWorldMeta', () => {
   const frame = getEntriesFrame(world);
-  const worldMeta = deriveWorldMeta(world, frame);
+  const viewport = { width: 335, height: 225 };
+  const worldMeta = deriveWorldMeta(world, frame, viewport);
 
   it('has an entry for every drawn entry, none tappable, no neighbours', () => {
     assert.deepEqual(Object.keys(worldMeta.entries).sort(), Object.keys(world.entries).sort());
@@ -62,9 +63,14 @@ describe('deriveWorldMeta', () => {
   it('marks microstates small and big countries not', () => {
     assert.equal(worldMeta.entries.va.smallInContinent, true);
     assert.equal(worldMeta.entries.ru.smallInContinent, false);
-    const pxPerUnit = WORLD_MAP_WIDTH_PX / (frame[2] - frame[0]);
+    const pxPerUnit = getPxPerUnit(frame, viewport);
     const [x0, y0, x1, y1] = world.entries.va.bbox;
     assert.ok((x1 - x0) * pxPerUnit < SMALL_SIDE_PX && (y1 - y0) * pxPerUnit < SMALL_SIDE_PX);
+  });
+
+  it('judges "small" at the real on-screen scale: a bigger map has fewer small entries', () => {
+    const count = (vp) => Object.values(deriveWorldMeta(world, frame, vp).entries).filter((e) => e.small).length;
+    assert.ok(count({ width: 1_000, height: 700 }) < count({ width: 335, height: 225 }));
   });
 
   it('plans a scene that draws every entry at the continent level', () => {

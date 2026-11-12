@@ -6,13 +6,11 @@
 //   - The results map uses the continent frame for a continent or sub-region
 //     scope, and `world.json` for "All".
 
+import { getPxPerUnit } from './map.js';
 import { CONTINENTS, SUBREGIONS } from './srs.js';
 
 /** Geometry key of the world file (`data/geometry/world.json`). */
 export const WORLD_KEY = 'world';
-
-/** CSS px width the world results map is sized for when judging "small". */
-export const WORLD_MAP_WIDTH_PX = 375;
 
 /** An entry is small when both sides are under this many CSS px (as in `map-meta.json`). */
 export const SMALL_SIDE_PX = 12;
@@ -82,17 +80,18 @@ export function getEntriesFrame(geometry) {
 
 /**
  * A `map-meta`-shaped object for the world file, which has no meta of its own:
- * `smallInContinent` is true for an entry whose bbox, with the frame
- * `WORLD_MAP_WIDTH_PX` wide, is under `SMALL_SIDE_PX` on both sides. Nothing is
- * tappable (the results map is not interactive) and there are no neighbours.
+ * `smallInContinent` is true for an entry whose bbox, at the real scale of the
+ * map on screen (`getPxPerUnit(frame, viewportPx)`), is under `SMALL_SIDE_PX`
+ * on both sides. Nothing is tappable (the results map is not interactive) and
+ * there are no neighbours.
  *
  * @param {{ entries: object }} geometry The parsed `world.json`.
  * @param {[number, number, number, number]} frame The frame the map is drawn at.
+ * @param {{ width: number, height: number }} viewportPx CSS px size of the map's `<svg>`.
  * @returns {{ frames: object, entries: Object<string, object> }} The meta.
  */
-export function deriveWorldMeta(geometry, frame) {
-  const [x0, , x1] = frame;
-  const pxPerUnit = WORLD_MAP_WIDTH_PX / (x1 - x0);
+export function deriveWorldMeta(geometry, frame, viewportPx) {
+  const pxPerUnit = getPxPerUnit(frame, viewportPx);
   const entries = {};
   for (const [code, entry] of Object.entries(geometry.entries)) {
     const [bx0, by0, bx1, by1] = entry.bbox;

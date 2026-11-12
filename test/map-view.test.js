@@ -600,4 +600,10 @@ describe('shade', () => {
     assert.throws(() => view.shade([1]), /`codes`/);
     assert.throws(() => view.shade(['xx']), /drawn in the current frame/);
   });
+
+  it('refuses a card rendered with a target', () => {
+    const view = makeView();
+    view.render({ ...baseInput, target: 'za' });
+    assert.throws(() => view.shade(['za']), /`target`/);
+  });
 });

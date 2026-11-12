@@ -17,8 +17,9 @@
 // never `window.confirm`.
 
 import { createMapView, FRAME_LEVEL_CONTINENT } from '../map-view.js';
-import { META_URL, fetchJson, getGeometryUrl } from '../data.js';
+import { META_URL, getGeometryUrl, loadJson } from '../data.js';
 import { guardQuestionArea, renderQuestion } from '../question.js';
+import { QUIZ_MODES } from '../storage.js';
 import { createTestPass, isPassComplete, recordTestAnswer } from '../test-pass.js';
 import { el } from '../ui.js';
 
@@ -50,6 +51,9 @@ export function mount(container, context) {
     throw new TypeError('`context.params` must be an object.');
   }
   const { filter, mode } = params;
+  if (!QUIZ_MODES.includes(mode)) {
+    throw new RangeError(`\`params.mode\` must be one of ${QUIZ_MODES.join(', ')}.`);
+  }
   // Throws on a bad filter; the router then shows its error.
   const pass = createTestPass({ countries, filter, rng: Math.random });
   controller = new AbortController();
@@ -106,11 +110,14 @@ function createExitSheet({ onLeave, signal }) {
     }
   }, { signal });
 
-  const open = () => {
+  // `focusedBefore` is what had focus before the tap on Exit: on iOS the tap
+  // blurs the typing input before `click`, so `activeElement` is already Exit.
+  const open = (focusedBefore = null) => {
     if (dialog.open) {
       return;
     }
-    returnFocusTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const fallback = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    returnFocusTo = focusedBefore instanceof HTMLElement && focusedBefore.isConnected ? focusedBefore : fallback;
     dialog.showModal();
   };
   return { dialog, open };
@@ -132,8 +139,8 @@ async function startPass(container, { countries, navigate, filter, mode, pass: f
     container.replaceChildren(el('p', { class: 'status' }, ['Loading…']));
     const continents = [...new Set(pass.codes.map((code) => byCode.get(code).continent))];
     const [meta, ...files] = await Promise.all([
-      fetchJson(META_URL),
-      ...continents.map((continent) => fetchJson(getGeometryUrl(continent)))
+      loadJson(META_URL),
+      ...continents.map((continent) => loadJson(getGeometryUrl(continent)))
     ]);
     if (signal.aborted) {
       return;
@@ -147,7 +154,14 @@ async function startPass(container, { countries, navigate, filter, mode, pass: f
       class: 'button-quiet test-exit',
       'aria-haspopup': 'dialog'
     }, ['Exit']);
-    exitButton.addEventListener('click', exitSheet.open, { signal });
+  let focusedBeforeExit = null;
+  exitButton.addEventListener('pointerdown', () => {
+    focusedBeforeExit = document.activeElement;
+  }, { signal });
+  exitButton.addEventListener('click', () => {
+    exitSheet.open(focusedBeforeExit);
+    focusedBeforeExit = null;
+  }, { signal });
     const mapBox = el('div', { class: 'test-map' });
     const stage = el('div', { class: 'test-question' });
     const mapView = createMapView();

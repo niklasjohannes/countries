@@ -11,7 +11,7 @@
 // js/test-pass.js). See the view contract in js/app.js.
 
 import { FRAME_LEVEL_CONTINENT, createMapView } from '../map-view.js';
-import { META_URL, fetchJson, getGeometryUrl } from '../data.js';
+import { META_URL, getGeometryUrl, loadJson } from '../data.js';
 import { WORLD_KEY, deriveWorldMeta, getEntriesFrame, getResultsGeometryKey } from '../test-map.js';
 import { formatScore, scorePass } from '../test-pass.js';
 import { ALL_LABEL, CONTINENT_LABELS, MODE_LABELS, el, formatSubregion } from '../ui.js';
@@ -52,7 +52,19 @@ function renderMiss(miss) {
  * @returns {void}
  */
 export function mount(container, context) {
+  if (!(container instanceof HTMLElement)) {
+    throw new TypeError('`container` must be an `HTMLElement`.');
+  }
+  if (typeof context !== 'object' || context === null || typeof context.navigate !== 'function') {
+    throw new TypeError('`context` must have a `navigate` function.');
+  }
   const { countries, navigate, params } = context;
+  if (!Array.isArray(countries)) {
+    throw new TypeError('`context.countries` must be an array.');
+  }
+  if (typeof params !== 'object' || params === null) {
+    throw new TypeError('`context.params` must be an object.');
+  }
   const { mode, pass } = params;
   if (!Object.hasOwn(MODE_LABELS, mode)) {
     throw new RangeError(`\`params.mode\` must be one of ${Object.keys(MODE_LABELS).join(', ')}.`);
@@ -96,24 +108,27 @@ async function showMissedMap(mapBox, { filter, codes, signal }) {
   try {
     const key = getResultsGeometryKey(filter);
     const [geometry, mapMeta] = await Promise.all([
-      fetchJson(getGeometryUrl(key)),
-      key === WORLD_KEY ? Promise.resolve(null) : fetchJson(META_URL)
+      loadJson(getGeometryUrl(key)),
+      key === WORLD_KEY ? Promise.resolve(null) : loadJson(META_URL)
     ]);
     if (signal.aborted) {
       return;
     }
+    const mapView = createMapView();
+    signal.addEventListener('abort', () => mapView.destroy());
+    mapBox.append(mapView.element);
     let frame;
     let meta;
     if (key === WORLD_KEY) {
+      // "Small" depends on the size on screen, so it is judged once the map is
+      // in the page (a fixed fallback if it has no layout yet).
       frame = getEntriesFrame(geometry);
-      meta = deriveWorldMeta(geometry, frame);
+      const { width, height } = mapView.svg.getBoundingClientRect();
+      meta = deriveWorldMeta(geometry, frame, width > 0 && height > 0 ? { width, height } : { width: 335, height: 225 });
     } else {
       meta = mapMeta;
       frame = meta.frames[key];
     }
-    const mapView = createMapView();
-    signal.addEventListener('abort', () => mapView.destroy());
-    mapBox.append(mapView.element);
     mapView.render({ geometry, meta, frame, frameLevel: FRAME_LEVEL_CONTINENT });
     mapView.shade(codes);
     mapView.relayout();

@@ -1,5 +1,5 @@
-// Loading of the map data files for test mode (the practice view loads its
-// own). Fetches only same-origin, relative URLs and parses them with
+// Loading of the map data files, shared by practice, test and results.
+// Fetches only same-origin, relative URLs and parses them with
 // `response.json()`; nothing is executed.
 
 export const META_URL = './data/map-meta.json';
@@ -17,8 +17,29 @@ export function getGeometryUrl(key) {
   return `./data/geometry/${key}.json`;
 }
 
+const cache = new Map();
+
 /**
- * Fetch and parse a JSON file.
+ * Fetch and parse a JSON file once per page load: later calls for the same URL
+ * (the test view, then the results view; Keep going in practice) reuse the
+ * result. A failed fetch is not cached, so a retry fetches again.
+ *
+ * @param {string} url Relative URL.
+ * @returns {Promise<object>} The parsed JSON. Callers must not mutate it.
+ */
+export function loadJson(url) {
+  if (!cache.has(url)) {
+    const promise = fetchJson(url).catch((error) => {
+      cache.delete(url);
+      throw error;
+    });
+    cache.set(url, promise);
+  }
+  return cache.get(url);
+}
+
+/**
+ * Fetch and parse a JSON file, uncached.
  *
  * @param {string} url Relative URL.
  * @returns {Promise<object>} The parsed JSON.

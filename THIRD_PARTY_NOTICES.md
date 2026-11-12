@@ -128,3 +128,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 ## Pixel marks
 
 `img/mark-check.svg` and `img/mark-cross.svg` are the 7 × 7 pixel ✓ and ✕ drawings from the sibling `flags` app (same owner), copied unchanged. They are used as CSS masks over the text colour.
+
+| File | SHA-256 |
+|---|---|
+| `img/mark-check.svg` | `46beb4921a6ea40555c9feaaa3369232f951e3fef51c774dcc24b9939355ae9b` |
+| `img/mark-cross.svg` | `e5f406f50fc318abb7c841f845fa7984bfa757f4f437dca88e18e412944d42c7` |
