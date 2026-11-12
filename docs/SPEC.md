@@ -116,6 +116,7 @@ Taiwan and Kosovo aren't in M49, so they are placed by geography (`eastern-asia`
 
   - `neighbours` is symmetric. It covers land neighbours, plus maritime neighbours for islands.
   - `small` is true when the bbox of the entry's *largest ring* (not the union bbox), at its sub-region frame drawn into a phone-shaped viewport (`SMALL_VIEWPORT_PX` in `scripts/frames.js`: 331 × 400 CSS px, the real practice map at 375 × 812; scale from `getPxPerUnit`, so tall frames are height-limited), is under 12 × 12 CSS px. The renderer also rings any target whose largest ring renders under about 10 px at the real size.
+  - Consequence (owner-accepted, issue 14): Micronesia and Polynesia have no tappable entries, so they get only map → name cards (PLAN decision 11: small countries are never name → tap).
   - `tappable` is `!small`.
   - **`smallInContinent` (owner decision, issue 6)**: the same rule at the entry's continent frame. `small` and `tappable` keep their sub-region meaning, so tap cards are unaffected. The renderer shows a circle marker and inset when an entry is small in whichever frame is on screen.
 
