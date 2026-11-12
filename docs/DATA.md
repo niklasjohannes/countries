@@ -110,7 +110,7 @@ These are carried over from the flags app's policy, because the entries already 
 | Palestine (`ps`) | UN observer: `sovereign: true`. Alias "State of Palestine". | carried from flags |
 | Vatican City (`va`) | UN observer: `sovereign: true`. Aliases "Holy See", "Vatican". | carried from flags |
 | Falkland Islands (`fk`) | `parentCode: gb` (administering state), claimed by Argentina. Aliases "Falklands", "Malvinas". | carried from flags |
-| Gibraltar (`gi`) | `parentCode: gb`, claimed by Spain. Context-only. | carried from flags |
+| Gibraltar (`gi`) | Not drawn at 1:50m, so not an entry: see `meta.excluded.gi`. Its `ENTRIES` row keeps `parentCode: gb` (claimed by Spain). | carried from flags, now excluded |
 | Hong Kong (`hk`), Macau (`mo`) | `parentCode: cn`. | carried from flags |
 | Cook Islands (`ck`), Niue (`nu`) | Free association: `parentCode: nz`. | carried from flags |
 | British Indian Ocean Territory (`io`) | `parentCode: gb`, claimed by Mauritius. Context-only. See "Chagos" below. | new, owner-ruled |
@@ -156,7 +156,7 @@ The regeneration test fails if `data/countries.json` isn't byte for byte what th
 
 1. **Features to entries.** Each 1:50m feature maps to the entry `ISO_A2_EH` names (not `ISO_A2`, which is `-99` for France, Norway and Kosovo). The three features with no ISO code map through `NE_FEATURE_CODES`: Northern Cyprus → `cy`, Somaliland → `so`, Siachen Glacier → `in`. Antarctica is skipped. Any other unmapped feature stops the build.
 2. **Overseas parts.** `OVERSEAS_SPLITS` moves polygon parts whose bounding box lies inside a lon/lat box to a separate entry: `gf`, `gp`, `mq`, `re`, `yt` from France; `sj` (Svalbard with Bjørnøya, and Jan Mayen, since ISO `SJ` covers both) from Norway; `bq` (Bonaire, Saba, Sint Eustatius) from the Netherlands; `cx` and `cc` from Australia's "Indian Ocean Territories"; `tk` from New Zealand. A rule that matches no part stops the build.
-3. **Border policy.** Every area in the breakaway/disputed layer has a row in `BREAKAWAY_RULINGS` naming the entry that owns it; an area with no row stops the build so it can be escalated. If the area is drawn inside a different entry, the generator moves it: the whole polygon part when the part *is* the area (Crimea, which 1:50m draws as part of Russia), otherwise a cut along the area's boundary, snapped to existing vertices so borders with third countries stay exact (the Golan Heights out of Israel; the Moroccan-administered part of Western Sahara out of Morocco). Everywhere else Natural Earth's default already matches the policy table, and the generator only checks that.
+3. **Border policy.** Every area in the breakaway/disputed layer has a row in `BREAKAWAY_RULINGS` naming the entry that owns it; an area with no row stops the build so it can be escalated. Every part of every area is sampled on a 20 × 20 grid. Wherever 5% or more of a part lies in a different entry, the generator moves that land: the whole polygon part when the part *is* the area (same area within 10%, and inside it; Crimea, which 1:50m draws as part of Russia), otherwise a cut along the area's boundary, snapped to existing vertices so borders with third countries stay exact (the Golan Heights out of Israel; the Moroccan-administered part of Western Sahara out of Morocco). Everywhere else Natural Earth's default already matches the policy table. Afterwards the ruled entry must own at least 95% of each area's sampled land, or the build stops; smaller remainders are slivers where the two layers were generalised differently.
 4. **Per file.** Longitudes are wrapped into the 360° around the file's projection centre, polygons Natural Earth cut at the antimeridian are stitched back together (Russia's Chukotka and Wrangel Island, Fiji's islands on the antimeridian), and edges shared by two parts of the same entry are dissolved (Ukraine with Crimea, Cyprus with Northern Cyprus, and so on).
 5. **Projection.** Continents use a spherical Lambert azimuthal equal-area projection (R = 6371 km) on these centres; `world.json` uses Equal Earth centred on 0°. `world.json` keeps the antimeridian as its edge, so nothing is stitched there.
 
@@ -170,7 +170,7 @@ The regeneration test fails if `data/countries.json` isn't byte for byte what th
 | `oceania.json` | LAEA | 170, −15 | 100 m | 20 km² | 5 km² |
 | `world.json` | Equal Earth | 0, 0 | 1 km | 1,500 km² | 800 km² |
 
-6. **Shared arcs.** Rings are cut into arcs at every point where the set of rings using an edge changes, so a border shared by two entries is one arc. Each arc is simplified once with Visvalingam–Whyatt; its tolerance is the file's, capped at 1% of the smallest ring using it, so microstates and small islands keep their shape. Arcs that cross after simplifying are re-simplified more gently, for up to 8 rounds (only a few atoll rings in `world.json` still touch themselves at the 1 km grid). Then they are quantised to the integer grid and the rings are rebuilt from them, so neighbours meet exactly: no gaps, no overlaps.
+6. **Shared arcs.** Rings are cut into arcs at every point where the set of rings using an edge changes, so a border shared by two entries is one arc. Each arc is simplified once with Visvalingam–Whyatt; its tolerance is the file's, capped at 1% of the smallest ring using it, so microstates and small islands keep their shape. Land-border arcs that touch a breakaway area's bounding box are simplified at most 0.2% of that area, so even `world.json` keeps the small disputed sectors on the ruled side. Arcs that cross after simplifying are re-simplified more gently (halving the tolerance, then unsimplified); an arc that crosses even unsimplified, a thin atoll folding onto itself on the integer grid, is collapsed to its simplest closed form. If any arc still crosses, the build stops. Then they are quantised to the integer grid and the rings are rebuilt from them, so neighbours meet exactly: no gaps, no overlaps.
 7. **Dropping islets.** An unshared ring is dropped when it is below the file's size threshold, unless it is the entry's largest ring or at least 1% of it. So island nations keep every island, while Canada's or Russia's islets go.
 
 ## Output
@@ -183,15 +183,15 @@ The regeneration test fails if `data/countries.json` isn't byte for byte what th
 
 - `scale` is integer units per km. With (X, Y) the projection in km, `x = round((X − origin[0]) · scale)` and `y = round((origin[1] − Y) · scale)`, so y grows downwards, as in SVG.
 - Rings are closed (the first point is repeated as the last). An entry's outer rings and holes wind in opposite directions, so both `fill-rule` values draw holes (Lesotho in South Africa, Vatican City in Italy, San Marino in Italy).
-- `label` is Natural Earth's `LABEL_X`/`LABEL_Y` of the entry's own feature, projected. Entries split out of another feature have no label of their own; they get a point inside their largest ring, and so does any entry whose label would fall outside it.
+- `label` is Natural Earth's `LABEL_X`/`LABEL_Y` of the entry's own feature, projected. Entries split out of another feature have no label of their own; they get a point inside their largest ring, and so does any entry whose label would fall outside it. After quantising, a label outside its rings moves to the nearest grid point inside the largest ring. Only a ring too small to hold any grid point inside it (Vatican City and Monaco in `world.json`, say) keeps its rounded surface point, within one unit of the ring.
 - Each continent file holds that continent's entries, context-only ones included. `world.json` holds all 246.
 
 ## Neighbours
 
-`data/geometry/neighbours.json` lists, for every entry, its neighbours (sorted, symmetric), for issue 6 to carry into `data/map-meta.json`:
+`data/geometry/neighbours.json` has two maps, both keyed by entry, sorted and symmetric: `land` (land neighbours only) and `neighbours` (land plus maritime). Issue 6 carries `neighbours` into `data/map-meta.json`.
 
 - **Land**: entries sharing an arc in the unsimplified world topology. Touching at a single point doesn't count.
-- **Maritime**: an *island* is an entry with no land neighbour. It gets the nearest 3 entries whose land is within 1,500 km (great-circle distance between vertices). Then the relation is made symmetric, so a mainland entry can gain island neighbours.
+- **Maritime**: an *island* is an entry with no land neighbour. It gets the nearest 3 entries whose land is within 1,500 km (great-circle distance between vertices). If none is that close (Saint Helena), it gets its single nearest entry, so no list is empty. Then the relation is made symmetric, so a mainland entry can gain island neighbours.
 
 ## Rebuilding geometry
 
@@ -203,6 +203,6 @@ node scripts/build-geometry.js
 node --test
 ```
 
-`node scripts/build-geometry.js --check` reports any stale file. `test/geometry.test.js` regenerates everything and compares byte for byte. It also checks coverage, the file contract, the size budget (continents ≤ 1 MB in total, `world.json` ≤ 250 KB), symmetric neighbours, shared borders without gaps or overlaps (sampled), and the spot checks: Crimea in Ukraine, Lesotho as a hole in South Africa, Kaliningrad in Russia, Alaska in north-america, and Fiji and Chukotka without an antimeridian seam.
+`node scripts/build-geometry.js --check` reports any stale file. `test/geometry.test.js` regenerates everything and compares byte for byte. It also checks coverage, the file contract, the size budget (continents ≤ 1 MB in total, `world.json` ≤ 250 KB), symmetric neighbours, that every land pair shares at least one edge and meets exactly along it (no edge with more than two owners, no crossing segments, probes on both sides of every shared edge), that each breakaway area is at least 95% its ruled entry in its continent file and in `world.json`, and the spot checks: Crimea in Ukraine, Lesotho as a hole in South Africa, Kaliningrad in Russia, Alaska in north-america, Fiji and Chukotka without an antimeridian seam, and Kiribati and the Aleutians in one piece across 180°.
 
 To re-vendor Natural Earth, download the new tag's files into `.vendor-tmp/`, hash them, copy them unchanged into `vendor/natural-earth/`, and update `NATURAL_EARTH`, the table above and `THIRD_PARTY_NOTICES.md`.

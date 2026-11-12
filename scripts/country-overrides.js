@@ -155,8 +155,20 @@ export const QUIZZED_EXTRAS = ['va', 'ps', 'xk', 'tw'];
 /** The 9 large territories that are quizzed (PLAN decision 2). */
 export const QUIZZED_TERRITORIES = ['gl', 'eh', 'gf', 'pr', 'nc', 'fk', 'pf', 'sj', 'hk'];
 
+/**
+ * ISO 3166-1 territories that Natural Earth 1:50m does not draw at all, neither
+ * as a feature nor as a part of another feature. They have no land to show, so
+ * they are dropped from `countries.json` and listed in `meta.excluded`. Their
+ * rows stay in ENTRIES and M49_SUBREGIONS so the transcription stays complete.
+ */
+export const NOT_DRAWN = {
+  bv: 'Bouvet Island: not drawn by Natural Earth at 1:50m (no feature, no polygon part).',
+  gi: 'Gibraltar: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only).',
+  um: 'United States Minor Outlying Islands: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only).'
+};
+
 export const POLICY = {
-  scope: 'Quizzed (206): the 193 UN member states, the extras Vatican City (va), Palestine (ps), Kosovo (xk) and Taiwan (tw), and nine large territories: Greenland, Western Sahara, French Guiana, Puerto Rico, New Caledonia, Falkland Islands, French Polynesia, Svalbard and Hong Kong. Every other ISO 3166-1 territory is context-only land (`quizzed: false`): drawn, never asked. The context-only list is reconciled against Natural Earth 1:50m: territories it does not draw at all (bv, gi, um) are left out and listed in `meta.excluded`.',
+  scope: `Quizzed (206): the 193 UN member states, the extras Vatican City (va), Palestine (ps), Kosovo (xk) and Taiwan (tw), and nine large territories: Greenland, Western Sahara, French Guiana, Puerto Rico, New Caledonia, Falkland Islands, French Polynesia, Svalbard and Hong Kong. Every other ISO 3166-1 territory is context-only land (\`quizzed: false\`): drawn, never asked. The context-only list is reconciled against Natural Earth 1:50m: territories it does not draw at all (${Object.keys(NOT_DRAWN).join(', ')}) are left out and listed in \`meta.excluded\`.`,
   continentBasis: 'Continent and sub-region come from the UN M49 geoscheme (see `meta.source`). M49 Africa, Asia, Europe and Oceania map 1:1; M49 Americas splits into north-america (Northern America, Central America, Caribbean) and south-america. Sub-regions are the 22 M49 intermediate regions (or the M49 sub-region where it has no intermediate regions). Taiwan and Kosovo are not in M49 and are placed by geography (Eastern Asia, Southern Europe).',
   transcontinental: {
     ru: 'europe (M49 Eastern Europe)',
@@ -213,7 +225,6 @@ export const POLICY = {
     ps: 'Palestine: UN non-member observer state -> sovereign true. Alias "State of Palestine".',
     va: 'Vatican City: UN non-member observer state (as the Holy See) -> sovereign true. Aliases "Holy See", "Vatican".',
     fk: 'Falkland Islands: administered by the United Kingdom, claimed by Argentina -> parentCode gb. Aliases "Falklands", "Malvinas".',
-    gi: 'Gibraltar: administered by the United Kingdom, claimed by Spain -> parentCode gb.',
     hk: 'Hong Kong: special administrative region of China -> sovereign false, parentCode cn.',
     mo: 'Macau: special administrative region of China -> sovereign false, parentCode cn.',
     ck: 'Cook Islands: free association with New Zealand, not a UN member -> parentCode nz.',
@@ -532,17 +543,6 @@ export const NATURAL_EARTH = {
   }
 };
 
-/**
- * ISO 3166-1 territories that Natural Earth 1:50m does not draw at all, neither
- * as a feature nor as a part of another feature. They have no land to show, so
- * they are dropped from `countries.json` and listed in `meta.excluded`. Their
- * rows stay in ENTRIES and M49_SUBREGIONS so the transcription stays complete.
- */
-export const NOT_DRAWN = {
-  bv: 'Bouvet Island: not drawn by Natural Earth at 1:50m (no feature, no polygon part).',
-  gi: 'Gibraltar: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only).',
-  um: 'United States Minor Outlying Islands: not drawn by Natural Earth at 1:50m (only the 1:10m layer has it, and 1:10m is used for quizzed entries only).'
-};
 
 /**
  * Natural Earth 1:50m features whose `ISO_A2_EH` is `-99`, keyed by `ADM0_A3`,

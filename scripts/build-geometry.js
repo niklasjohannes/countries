@@ -51,7 +51,17 @@ const CUT_DENSIFY_DEG = 0.05;
 /** Per-arc tolerance never exceeds this share of the smallest ring using the arc. */
 const ARC_TOLERANCE_RING_SHARE = 0.01;
 /** Rounds of gentler re-simplification for arcs that cross after simplifying. */
-const CROSSING_ROUNDS = 8;
+const CROSSING_ROUNDS = 10;
+/** How far (grid units) a label may move to land inside its ring. */
+const LABEL_SEARCH_UNITS = 64;
+/** Grid size for sampling breakaway areas. */
+const BREAKAWAY_GRID = 20;
+/** Land in another entry below this share of an area's samples is a sliver, not a move. */
+const BREAKAWAY_SLIVER_SHARE = 0.05;
+/** The ruled entry must own at least this share of each breakaway area. */
+export const BREAKAWAY_MIN_SHARE = 0.95;
+/** Arcs near a breakaway area are simplified at most this share of its area. */
+const BREAKAWAY_TOLERANCE_SHARE = 0.002;
 /** Islands at least this share of their entry's largest ring are always kept. */
 const KEEP_RING_SHARE = 0.01;
 
@@ -188,6 +198,27 @@ function openRing(ring) {
   return out;
 }
 
+/** Remove back-and-forth spikes (a, b, a) that quantising can leave in a ring. */
+function removeSpikes(ring) {
+  const out = [...ring];
+  let changed = true;
+  while (changed && out.length >= 3) {
+    changed = false;
+    for (let i = 0; i < out.length && out.length >= 3; i += 1) {
+      const before = out[(i - 1 + out.length) % out.length];
+      const after = out[(i + 1) % out.length];
+      if (before[0] === after[0] && before[1] === after[1]) {
+        // Drop the spike tip and one copy of its base.
+        const remove = [i, (i + 1) % out.length].sort((x, y) => y - x);
+        for (const index of remove) out.splice(index, 1);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /** Orient a polygon: outer ring counter-clockwise, holes clockwise. */
 function orientPolygon(polygon) {
   return polygon.map((ring, index) => {
@@ -222,6 +253,15 @@ function featurePolygons(feature) {
   const { type, coordinates } = feature.geometry;
   const polygons = type === 'Polygon' ? [coordinates] : type === 'MultiPolygon' ? coordinates : null;
   if (polygons === null) throw new RangeError(`Unexpected geometry type \`${type}\`.`);
+  for (const polygon of polygons) {
+    for (const ring of polygon) {
+      for (const point of ring) {
+        if (!Array.isArray(point) || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) {
+          throw new RangeError(`Feature \`${feature.properties.ADM0_A3 ?? feature.properties.BRK_NAME}\` has a non-finite coordinate.`);
+        }
+      }
+    }
+  }
   return polygons.map((polygon) => orientPolygon(polygon.map(openRing).filter((ring) => ring.length >= 3)));
 }
 
@@ -268,6 +308,9 @@ export function assignEntries(countriesLayer, breakawayLayer, codes) {
     if (mapped === null) {
       const area = polygons.reduce((sum, polygon) => sum + Math.abs(doubleArea(polygon[0])), 0);
       if (area > (primaryArea.get(code) ?? -1)) {
+        if (!Number.isFinite(p.LABEL_X) || !Number.isFinite(p.LABEL_Y)) {
+          throw new RangeError(`Natural Earth feature \`${p.ADM0_A3}\` has a non-finite LABEL_X/LABEL_Y.`);
+        }
         primaryArea.set(code, area);
         entry.label = [p.LABEL_X, p.LABEL_Y];
       }
@@ -330,19 +373,78 @@ function pointInPolygons(point, polygons) {
   return polygons.some((polygon) => pointInPolygon(point, polygon));
 }
 
+const polygonBoxes = new WeakMap();
+
 /** Find the entry and polygon index that contain a point. */
 function locate(point, entries) {
+  const inBox = (polygon) => {
+    if (!polygonBoxes.has(polygon)) polygonBoxes.set(polygon, ringBbox(polygon[0]));
+    const [x0, y0, x1, y1] = polygonBoxes.get(polygon);
+    return point[0] >= x0 && point[0] <= x1 && point[1] >= y0 && point[1] <= y1;
+  };
   for (const [code, entry] of entries) {
-    const index = entry.polygons.findIndex((polygon) => pointInPolygon(point, polygon));
+    const index = entry.polygons.findIndex((polygon) => inBox(polygon) && pointInPolygon(point, polygon));
     if (index !== -1) return { code, index };
   }
   return null;
 }
 
 /**
- * Give one breakaway/disputed area to the entry its ruling names. If another
- * entry holds it, move it: the whole polygon part when the part is the area,
- * otherwise cut the part along the area's boundary.
+ * Sample points inside a ring on an n-by-n grid over its bounding box.
+ * @param {number[][]} ring
+ * @param {number} n
+ * @returns {number[][]}
+ */
+export function samplePoints(ring, n) {
+  if (!Array.isArray(ring) || !Number.isInteger(n) || n < 1) {
+    throw new TypeError('`ring` must be a ring and `n` a positive integer.');
+  }
+  const [x0, y0, x1, y1] = ringBbox(ring);
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    for (let j = 0; j < n; j += 1) {
+      // Irrational-ish offsets keep samples off grid-aligned vertices and edges.
+      const point = [x0 + ((x1 - x0) * (i + 0.382)) / n, y0 + ((y1 - y0) * (j + 0.618)) / n];
+      if (pointInRing(point, ring)) out.push(point);
+    }
+  }
+  return out;
+}
+
+/** Samples inside a breakaway area part: a 20 x 20 grid, finer for thin shapes. */
+function areaSamples(region) {
+  let samples = samplePoints(region, BREAKAWAY_GRID);
+  if (samples.length < 40) samples = samplePoints(region, BREAKAWAY_GRID * 4);
+  return [...samples, pointOnSurface(region)];
+}
+
+/**
+ * Share of a breakaway area's sampled land that `code` owns. Samples over no
+ * entry (sea, or slivers where the two layers were generalised differently
+ * along a coast) are not counted.
+ * @returns {number}
+ */
+function ownedShare(polygons, code, entries) {
+  let owned = 0;
+  let total = 0;
+  for (const polygon of polygons) {
+    for (const point of areaSamples(polygon[0])) {
+      const found = locate(point, entries);
+      if (found === null) continue;
+      total += 1;
+      if (found.code === code) owned += 1;
+    }
+  }
+  return total === 0 ? 0 : owned / total;
+}
+
+/**
+ * Give one breakaway/disputed area to the entry its ruling names. Every part
+ * of the area is sampled; wherever a real share of it (not a sliver from the
+ * two layers' different generalisation) lies in another entry, that land is
+ * moved: the whole polygon part when the part *is* the area (equal area and
+ * inside it), otherwise a cut along the area's boundary. Afterwards the ruled
+ * entry must own at least BREAKAWAY_MIN_SHARE of the area, or the build stops.
  */
 function applyBreakaway(feature, entries) {
   const name = feature.properties.BRK_NAME;
@@ -352,25 +454,44 @@ function applyBreakaway(feature, entries) {
   const target = BREAKAWAY_RULINGS[name].code;
   if (!entries.has(target)) throw new RangeError(`Ruling for \`${name}\` names \`${target}\`, which has no geometry.`);
   const polygons = featurePolygons(feature);
-  const region = largestRing(polygons);
-  const probe = pointOnSurface(region);
-  const found = locate(probe, entries);
-  if (found === null) throw new RangeError(`Breakaway area \`${name}\` is not over any entry.`);
-  if (found.code === target) return;
-
-  const source = entries.get(found.code);
-  const part = source.polygons[found.index];
-  const partKeys = new Set(part[0].map(key));
-  const shared = region.filter((point) => partKeys.has(key(point))).length;
-  if (shared / region.length >= 0.9 && part.length === 1) {
-    source.polygons.splice(found.index, 1);
-    entries.get(target).polygons.push(part);
-    return;
+  for (const polygon of polygons) {
+    const region = polygon[0];
+    const samples = areaSamples(region);
+    const groups = new Map();
+    for (const point of samples) {
+      const found = locate(point, entries);
+      if (found === null || found.code === target) continue;
+      const groupKey = `${found.code}|${found.index}`;
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey).push(point);
+    }
+    const ordered = [...groups.values()].sort((x, y) => y.length - x.length);
+    for (const points of ordered) {
+      if (points.length < BREAKAWAY_SLIVER_SHARE * samples.length) continue;
+      // Earlier moves may have shifted polygon indices, so locate again.
+      const probe = points[Math.floor(points.length / 2)];
+      const found = locate(probe, entries);
+      if (found === null || found.code === target) continue;
+      const source = entries.get(found.code);
+      const part = source.polygons[found.index];
+      const ratio = Math.abs(doubleArea(part[0])) / Math.abs(doubleArea(region));
+      const partSamples = areaSamples(part[0]);
+      const inside = partSamples.filter((point) => pointInRing(point, region)).length / partSamples.length;
+      if (part.length === 1 && ratio > 0.9 && ratio < 1.1 && inside >= 0.9) {
+        source.polygons.splice(found.index, 1);
+        entries.get(target).polygons.push(part);
+        continue;
+      }
+      if (part.length !== 1) throw new RangeError(`Cannot cut \`${name}\` out of a polygon with holes.`);
+      const [cutInside, cutOutside] = cutRing(part[0], region, probe);
+      source.polygons[found.index] = [cutOutside];
+      entries.get(target).polygons.push([cutInside]);
+    }
   }
-  if (part.length !== 1) throw new RangeError(`Cannot cut \`${name}\` out of a polygon with holes.`);
-  const [inside, outside] = cutRing(part[0], region, probe);
-  source.polygons[found.index] = [outside];
-  entries.get(target).polygons.push([inside]);
+  const share = ownedShare(polygons, target, entries);
+  if (share < BREAKAWAY_MIN_SHARE) {
+    throw new RangeError(`Breakaway area \`${name}\` is only ${(share * 100).toFixed(1)}% \`${target}\` after applying its ruling.`);
+  }
 }
 
 function densify(ring, step) {
@@ -670,7 +791,7 @@ export function makeProjection(spec) {
  */
 export function simplifyVisvalingam(points, tolerance, closed) {
   if (!Array.isArray(points)) throw new TypeError('`points` must be an array.');
-  if (!Number.isFinite(tolerance) || tolerance < 0) throw new RangeError('`tolerance` must be >= 0.');
+  if (typeof tolerance !== 'number' || Number.isNaN(tolerance) || tolerance < 0) throw new RangeError('`tolerance` must be a number >= 0 (Infinity allowed).');
   const n = points.length;
   const minimum = closed ? 4 : 2;
   if (n <= minimum) return points;
@@ -845,9 +966,10 @@ function findCrossingArcs(arcs) {
  * @param {{code: string, ring: number[][]}[]} rings projected rings (km), open
  * @param {{toleranceKm2: number, unitsPerKm: number}} spec
  * @param {number[]} origin [x0, y1] in km: top-left corner of the file
+ * @param {{bbox: number[], areaKm2: number}[]} protectedAreas projected breakaway areas
  * @returns {{rings: Map<string, number[][][]>, adjacency: Set<string>}}
  */
-function buildArcs(rings, spec, origin) {
+function buildArcs(rings, spec, origin, protectedAreas) {
   const edgeOwners = new Map();
   const vertexRings = new Map();
   rings.forEach(({ ring }, r) => {
@@ -920,7 +1042,17 @@ function buildArcs(rings, spec, origin) {
   const tolerances = new Map();
   for (const [id, arc] of arcs) {
     const smallest = Math.min(...arc.users.map((r) => ringArea[r]));
-    tolerances.set(id, Math.min(spec.toleranceKm2, ARC_TOLERANCE_RING_SHARE * smallest));
+    let tolerance = Math.min(spec.toleranceKm2, ARC_TOLERANCE_RING_SHARE * smallest);
+    // Borders around a disputed area must stay finer than the area itself, or
+    // a coarse file (world.json) would hand the area to the wrong side.
+    const arcBox = ringBbox(arc.points);
+    const isBorder = new Set(arc.users.map((r) => rings[r].code)).size > 1;
+    for (const area of isBorder ? protectedAreas : []) {
+      if (arcBox[0] <= area.bbox[2] && area.bbox[0] <= arcBox[2] && arcBox[1] <= area.bbox[3] && area.bbox[1] <= arcBox[3]) {
+        tolerance = Math.min(tolerance, BREAKAWAY_TOLERANCE_SHARE * area.areaKm2);
+      }
+    }
+    tolerances.set(id, tolerance);
   }
   const simplifyArc = (id) => {
     const { points } = arcs.get(id);
@@ -937,16 +1069,23 @@ function buildArcs(rings, spec, origin) {
   const finalArcs = new Map();
   for (const id of arcs.keys()) finalArcs.set(id, simplifyArc(id));
   // Simplifying arcs independently can make two of them cross (two coasts of
-  // a narrow estuary, say). Re-simplify the arcs involved more gently until
-  // no arcs cross.
+  // a narrow estuary, say). Re-simplify the arcs involved more gently. An arc
+  // that still crosses unsimplified does so because of the integer grid (a thin
+  // atoll folding onto itself), so it is collapsed to its simplest form instead.
   for (let round = 0; round < CROSSING_ROUNDS; round += 1) {
     const crossing = findCrossingArcs(finalArcs);
     if (crossing.size === 0) break;
-    for (const id of crossing) {
+    for (const id of [...crossing].sort()) {
       const tolerance = tolerances.get(id);
-      tolerances.set(id, round === CROSSING_ROUNDS - 2 ? 0 : tolerance / 2);
+      const next = tolerance === 0 ? Infinity : round >= CROSSING_ROUNDS - 4 ? 0 : tolerance / 2;
+      tolerances.set(id, next);
       finalArcs.set(id, simplifyArc(id));
     }
+  }
+  const stillCrossing = findCrossingArcs(finalArcs);
+  if (stillCrossing.size > 0) {
+    const owners = [...stillCrossing].map((id) => arcs.get(id).users.map((r) => rings[r].code).join('+'));
+    throw new RangeError(`Arcs still cross after simplification: ${[...new Set(owners)].sort().join(', ')}.`);
   }
 
   const adjacency = new Set();
@@ -965,7 +1104,7 @@ function buildArcs(rings, spec, origin) {
         if (!tail || tail[0] !== point[0] || tail[1] !== point[1]) ring.push(point);
       }
     }
-    const open = openRing(ring);
+    const open = removeSpikes(openRing(ring));
     if (open.length < 3 || doubleArea(open) === 0) return;
     if (!out.has(code)) out.set(code, []);
     out.get(code).push([...open, open[0]]);
@@ -974,15 +1113,52 @@ function buildArcs(rings, spec, origin) {
 }
 
 /**
+ * Keep a quantised label inside its rings. If rounding or simplification put it
+ * outside, use the integer point inside the largest ring nearest that ring's
+ * surface point. A ring too small to hold any interior grid point (Vatican City
+ * in world.json) gets its surface point rounded, which is within one unit of it.
+ * @param {number[]} label integer [x, y]
+ * @param {number[][][]} rings closed integer rings
+ * @returns {number[]}
+ */
+export function placeLabel(label, rings) {
+  if (!Array.isArray(label) || !Array.isArray(rings) || rings.length === 0) {
+    throw new TypeError('`label` must be [x, y] and `rings` a non-empty array.');
+  }
+  if (pointInRings(label, rings)) return label;
+  let largest = rings[0];
+  for (const ring of rings) if (Math.abs(doubleArea(ring)) > Math.abs(doubleArea(largest))) largest = ring;
+  const surface = pointOnSurface(largest.slice(0, -1));
+  const rounded = [Math.round(surface[0]), Math.round(surface[1])];
+  if (pointInRings(rounded, rings)) return rounded;
+  const [bx0, by0, bx1, by1] = ringBbox(largest);
+  const reach = LABEL_SEARCH_UNITS;
+  let best = null;
+  let bestDistance = Infinity;
+  for (let x = Math.max(bx0, rounded[0] - reach); x <= Math.min(bx1, rounded[0] + reach); x += 1) {
+    for (let y = Math.max(by0, rounded[1] - reach); y <= Math.min(by1, rounded[1] + reach); y += 1) {
+      const d = Math.hypot(x - surface[0], y - surface[1]);
+      if (d < bestDistance && pointInRings([x, y], rings)) {
+        bestDistance = d;
+        best = [x, y];
+      }
+    }
+  }
+  return best ?? rounded;
+}
+
+/**
  * Build one geometry file.
  * @param {Map<string, {polygons: number[][][][], label: number[]}>} entries
  * @param {string[]} codes entries in this file, sorted
  * @param {object} spec a GEOMETRY_FILES row
+ * @param {number[][][]} [areas] breakaway-area rings in degrees, kept finely simplified
  * @returns {{file: object, adjacency: Set<string>}}
  */
-export function buildFile(entries, codes, spec) {
+export function buildFile(entries, codes, spec, areas = []) {
   if (!(entries instanceof Map)) throw new TypeError('`entries` must be a Map.');
   if (!Array.isArray(codes)) throw new TypeError('`codes` must be an array of codes.');
+  if (!Array.isArray(areas)) throw new TypeError('`areas` must be an array of rings.');
   const project = makeProjection(spec);
   const [centreLon] = spec.centre;
   const wrap = spec.projection === 'laea';
@@ -1036,7 +1212,11 @@ export function buildFile(entries, codes, spec) {
     }
   }
   const origin = [Math.floor(x0), Math.ceil(y1)];
-  const { rings, adjacency } = buildArcs(projected, spec, origin);
+  const protectedAreas = areas.map((ring) => {
+    const km = ring.map(([lon, lat]) => project(wrap ? wrapLongitude(lon, centreLon) : lon, lat));
+    return { bbox: ringBbox(km), areaKm2: Math.abs(doubleArea(km)) / 2 };
+  });
+  const { rings, adjacency } = buildArcs(projected, spec, origin, protectedAreas);
 
   const scale = spec.unitsPerKm;
   const out = {};
@@ -1059,7 +1239,7 @@ export function buildFile(entries, codes, spec) {
     out[code] = {
       rings: entryRings,
       bbox: [bx0, by0, bx1, by1],
-      label: [Math.round((lx - origin[0]) * scale), Math.round((origin[1] - ly) * scale)]
+      label: placeLabel([Math.round((lx - origin[0]) * scale), Math.round((origin[1] - ly) * scale)], entryRings)
     };
   }
   const projection = {
@@ -1082,10 +1262,11 @@ function toUnitVector([lon, lat]) {
 
 /**
  * Symmetric neighbours: entries sharing an arc, plus, for islands (entries
- * with no land neighbour), the nearest `count` entries within `capKm`.
+ * with no land neighbour), the nearest `count` entries within `capKm`, or
+ * the single nearest entry when none is that close.
  * @param {Map<string, {polygons: number[][][][]}>} entries
  * @param {Set<string>} adjacency `a|b` pairs that share an arc
- * @returns {Record<string, string[]>}
+ * @returns {{land: Record<string, string[]>, neighbours: Record<string, string[]>}}
  */
 export function deriveNeighbours(entries, adjacency) {
   if (!(entries instanceof Map) || !(adjacency instanceof Set)) {
@@ -1112,6 +1293,17 @@ export function deriveNeighbours(entries, adjacency) {
   }
   const capRad = MARITIME_NEIGHBOURS.capKm / EARTH_RADIUS_KM;
   const islands = codes.filter((code) => neighbours.get(code).size === 0);
+  const land = Object.fromEntries(codes.map((code) => [code, [...neighbours.get(code)].sort()]));
+  // Islands with nothing inside the cap's bounding test are searched in full.
+  const remote = new Set(islands.filter((island) => {
+    const a = caps.get(island);
+    return !codes.some((other) => {
+      if (other === island) return false;
+      const b = caps.get(other);
+      const between = Math.acos(Math.min(1, a.unit[0] * b.unit[0] + a.unit[1] * b.unit[1] + a.unit[2] * b.unit[2]));
+      return between - a.radius - b.radius <= capRad;
+    });
+  }));
   for (const island of islands) {
     const a = caps.get(island);
     const va = vectors.get(island);
@@ -1120,7 +1312,7 @@ export function deriveNeighbours(entries, adjacency) {
       if (other === island) continue;
       const b = caps.get(other);
       const between = Math.acos(Math.min(1, a.unit[0] * b.unit[0] + a.unit[1] * b.unit[1] + a.unit[2] * b.unit[2]));
-      if (between - a.radius - b.radius > capRad) continue;
+      if (between - a.radius - b.radius > capRad && !remote.has(island)) continue;
       const vb = vectors.get(other);
       let best = -1;
       for (let i = 0; i < va.length; i += 3) {
@@ -1130,15 +1322,19 @@ export function deriveNeighbours(entries, adjacency) {
         }
       }
       const distance = Math.acos(Math.min(1, best));
-      if (distance <= capRad) candidates.push({ other, distance });
+      candidates.push({ other, distance });
     }
     candidates.sort((x, y) => x.distance - y.distance || (x.other < y.other ? -1 : 1));
-    for (const { other } of candidates.slice(0, MARITIME_NEIGHBOURS.count)) {
+    // Within the cap, up to `count`; a remote island (Saint Helena) still gets
+    // its single nearest entry, so no list is ever empty.
+    const withinCap = candidates.filter(({ distance }) => distance <= capRad);
+    const chosen = withinCap.length > 0 ? withinCap.slice(0, MARITIME_NEIGHBOURS.count) : candidates.slice(0, 1);
+    for (const { other } of chosen) {
       neighbours.get(island).add(other);
       neighbours.get(other).add(island);
     }
   }
-  return Object.fromEntries(codes.map((code) => [code, [...neighbours.get(code)].sort()]));
+  return { land, neighbours: Object.fromEntries(codes.map((code) => [code, [...neighbours.get(code)].sort()])) };
 }
 
 // ---- Whole build ----
@@ -1166,6 +1362,7 @@ export function buildGeometry(root = ROOT) {
   const { countries, meta } = JSON.parse(readFileSync(resolve(root, COUNTRIES_PATH), 'utf8'));
   const codes = new Set(countries.map((country) => country.code));
   const entries = assignEntries(countriesLayer, breakawayLayer, codes);
+  const areas = breakawayLayer.features.flatMap((feature) => featurePolygons(feature).map((polygon) => polygon[0]));
   for (const code of codes) {
     if (!entries.has(code) || entries.get(code).polygons.length === 0) {
       throw new RangeError(`\`${code}\` has no Natural Earth geometry: draw it or list it in NOT_DRAWN.`);
@@ -1177,18 +1374,18 @@ export function buildGeometry(root = ROOT) {
     const spec = GEOMETRY_FILES[continent];
     if (!spec) throw new RangeError(`No GEOMETRY_FILES row for \`${continent}\`.`);
     const members = countries.filter((country) => country.continent === continent).map((country) => country.code);
-    const { file } = buildFile(entries, members, spec);
+    const { file } = buildFile(entries, members, spec, areas);
     outputs.set(`${OUTPUT_DIR}/${continent}.json`, serialiseGeometry(file));
   }
-  const { file: world, adjacency } = buildFile(entries, [...codes].sort(), GEOMETRY_FILES.world);
+  const { file: world, adjacency } = buildFile(entries, [...codes].sort(), GEOMETRY_FILES.world, areas);
   outputs.set(`${OUTPUT_DIR}/world.json`, serialiseGeometry(world));
 
-  const neighbours = deriveNeighbours(entries, adjacency);
-  const rows = Object.keys(neighbours).map((code) => `${JSON.stringify(code)}:${JSON.stringify(neighbours[code])}`);
+  const { land, neighbours } = deriveNeighbours(entries, adjacency);
+  const block = (map) => Object.keys(map).map((code) => `${JSON.stringify(code)}:${JSON.stringify(map[code])}`).join(',\n');
   const header = { source: 'scripts/build-geometry.js', maritime: MARITIME_NEIGHBOURS };
   outputs.set(
     `${OUTPUT_DIR}/${NEIGHBOURS_FILE}`,
-    `{"meta":${JSON.stringify(header)},"neighbours":{\n${rows.join(',\n')}\n}}\n`
+    `{"meta":${JSON.stringify(header)},"land":{\n${block(land)}\n},"neighbours":{\n${block(neighbours)}\n}}\n`
   );
   return outputs;
 }

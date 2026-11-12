@@ -97,7 +97,6 @@
         "ps": "Palestine: UN non-member observer state -> sovereign true. Alias \"State of Palestine\".",
         "va": "Vatican City: UN non-member observer state (as the Holy See) -> sovereign true. Aliases \"Holy See\", \"Vatican\".",
         "fk": "Falkland Islands: administered by the United Kingdom, claimed by Argentina -> parentCode gb. Aliases \"Falklands\", \"Malvinas\".",
-        "gi": "Gibraltar: administered by the United Kingdom, claimed by Spain -> parentCode gb.",
         "hk": "Hong Kong: special administrative region of China -> sovereign false, parentCode cn.",
         "mo": "Macau: special administrative region of China -> sovereign false, parentCode cn.",
         "ck": "Cook Islands: free association with New Zealand, not a UN member -> parentCode nz.",
