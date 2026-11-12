@@ -58,6 +58,9 @@ export const CANDIDATE_FONT_PX = 18;
  */
 export const TINY_TARGET_PX = 10;
 
+/** Shade rings closer than this many ring radii (centre to centre) share one ring. */
+export const SHADE_MARKER_CLUSTER_RADII = 1.5;
+
 /** Generic label of the question region; never names the country. */
 export const REGION_LABEL = 'Map question';
 
@@ -363,8 +366,16 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       text.setAttribute('stroke-width', LABEL_HALO_PX * unitsPerPx);
     };
     state.markers.forEach((text) => sizeMarker(text, 1 / pxPerUnit));
-    for (const circle of state.shadeMarkers) {
+    // One ring per cluster: a ring whose centre lies within a ring-radius and
+    // a half of an earlier one is hidden, so microstates do not merge into blobs.
+    const shown = [];
+    for (const { circle, x, y } of state.shadeMarkers) {
       circle.setAttribute('r', MARKER_MIN_RADIUS_PX / pxPerUnit);
+      const overlaps = shown.some(([sx, sy]) => Math.hypot(x - sx, y - sy) * pxPerUnit < MARKER_MIN_RADIUS_PX * SHADE_MARKER_CLUSTER_RADII);
+      circle.setAttribute('display', overlaps ? 'none' : 'inline');
+      if (!overlaps) {
+        shown.push([x, y]);
+      }
     }
     if (state.inset !== null) {
       // The inset maps its square source into its square target.
@@ -714,7 +725,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
       for (const [code, path] of state.paths) {
         path.setAttribute('class', shaded.has(code) ? 'map-land map-shaded' : 'map-land');
       }
-      for (const circle of state.shadeMarkers) {
+      for (const { circle } of state.shadeMarkers) {
         svg.removeChild(circle);
       }
       state.shadeMarkers = [];
@@ -724,7 +735,7 @@ export function createMapView({ onTap, onAmbiguous, onMiss, document: doc = glob
         if (item.small && point !== null) {
           const circle = make('circle', { class: 'map-marker map-marker-shade', cx: point[0], cy: point[1], r: 1 });
           svg.insertBefore(circle, state.layer);
-          state.shadeMarkers.push(circle);
+          state.shadeMarkers.push({ circle, x: point[0], y: point[1] });
         }
       }
       relayout();

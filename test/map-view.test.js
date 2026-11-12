@@ -658,6 +658,20 @@ describe('shade', () => {
     assert.equal(all(view.svg, (n) => n.tag === 'text').length, 0);
   });
 
+  it('draws one ring for a cluster of small shaded entries (no merged blobs)', () => {
+    const tiny = (x) => ({ rings: square(x, 1_000, 5), bbox: [x, 1_000, x + 5, 1_005], label: [x + 2, 1_002] });
+    const custom = { entries: { aa: tiny(1_000), bb: tiny(1_010), cc: tiny(30_000) }, context: {} };
+    const small = { small: true, smallInContinent: true, tappable: false, neighbours: [] };
+    const info = { entries: { aa: small, bb: small, cc: small } };
+    const frame = [0, 0, 40_000, 40_000];
+    const view = makeView();
+    layOut(view.svg, VIEWPORT, frame);
+    view.render({ geometry: custom, meta: info, frame, frameLevel: 'continent' });
+    view.shade(['aa', 'bb', 'cc']);
+    const visible = byClass(view.svg, 'map-marker-shade').filter((n) => n.attrs.display !== 'none');
+    assert.equal(visible.length, 2);
+  });
+
   it('replaces earlier shading and accepts an empty list', () => {
     const view = makeView();
     view.render({ ...baseInput, frame: meta.frames['eastern-africa'] });
